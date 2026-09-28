@@ -1,0 +1,36 @@
+{
+  "name": "market-tasarruf-asistani",
+  "private": true,
+  "packageManager": "pnpm@10.17.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "turbo dev --filter=@market/api",
+    "admin:dev": "pnpm --filter @market/admin dev",
+    "admin:build": "pnpm --filter @market/admin build",
+    "build": "turbo build",
+    "typecheck": "turbo typecheck",
+    "lint": "turbo lint",
+    "test": "turbo test --concurrency=1",
+    "db:generate": "pnpm --filter @market/database db:generate",
+    "db:migrate": "pnpm --filter @market/database db:migrate",
+    "db:seed": "pnpm --filter @market/database db:seed",
+    "db:verify": "pnpm --filter @market/database db:verify",
+    "ingest:prices": "pnpm --filter @market/ingestion ingest",
+    "ingest:open-prices": "pnpm --filter @market/ingestion ingest:open-prices",
+    "ingest:brochure": "pnpm --filter @market/ingestion ingest:brochure",
+    "brochure:review": "pnpm --filter @market/ingestion brochure:review"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^24.3.0",
+    "eslint": "^9.39.5",
+    "pnpm": "10.17.1",
+    "tsx": "^4.20.5",
+    "turbo": "^2.5.8",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.70.0",
+    "vitest": "^3.2.4"
+  }
+}

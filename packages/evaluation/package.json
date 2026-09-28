@@ -1,0 +1,6 @@
+{
+  "name": "@market/evaluation", "version": "0.1.0", "private": true, "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "build": "tsc --noEmit", "typecheck": "tsc --noEmit", "lint": "eslint src", "test": "vitest run" },
+  "dependencies": { "@market/config": "workspace:*", "@market/contracts": "workspace:*", "@market/database": "workspace:*", "@market/domain": "workspace:*" }
+}

@@ -1,0 +1,18 @@
+{
+  "/_global-error/page": "app/_global-error/page.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/alerts/page": "app/alerts/page.js",
+  "/audit-logs/page": "app/audit-logs/page.js",
+  "/brochures/page": "app/brochures/page.js",
+  "/data-sources/page": "app/data-sources/page.js",
+  "/deals/page": "app/deals/page.js",
+  "/ingestion-reviews/page": "app/ingestion-reviews/page.js",
+  "/ingestion-runs/page": "app/ingestion-runs/page.js",
+  "/notifications/page": "app/notifications/page.js",
+  "/page": "app/page.js",
+  "/prices/page": "app/prices/page.js",
+  "/products/page": "app/products/page.js",
+  "/promotions/page": "app/promotions/page.js",
+  "/retailer-products/page": "app/retailer-products/page.js",
+  "/reviews/page": "app/reviews/page.js"
+}

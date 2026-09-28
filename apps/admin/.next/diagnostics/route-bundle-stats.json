@@ -1,0 +1,181 @@
+[
+  {
+    "route": "/",
+    "firstLoadUncompressedJsBytes": 489677,
+    "firstLoadChunkPaths": [
+      ".next/static/chunks/18u_8r_n0u1o2.js",
+      ".next/static/chunks/0-9gk1hk-054s.js",
+      ".next/static/chunks/3l1dhj82th62m.js",
+      ".next/static/chunks/19l-2xc1tsrzb.js",
+      ".next/static/chunks/2njoh4fgj0nmz.js",
+      ".next/static/chunks/turbopack-0xjeitz0peg8p.js"
+    ]
+  },
+  {
+    "route": "/alerts",
+    "firstLoadUncompressedJsBytes": 489677,
+    "firstLoadChunkPaths": [
+      ".next/static/chunks/18u_8r_n0u1o2.js",
+      ".next/static/chunks/0-9gk1hk-054s.js",
+      ".next/static/chunks/3l1dhj82th62m.js",
+      ".next/static/chunks/19l-2xc1tsrzb.js",
+      ".next/static/chunks/2njoh4fgj0nmz.js",
+      ".next/static/chunks/turbopack-0xjeitz0peg8p.js"
+    ]
+  },
+  {
+    "route": "/audit-logs",
+    "firstLoadUncompressedJsBytes": 489677,
+    "firstLoadChunkPaths": [
+      ".next/static/chunks/18u_8r_n0u1o2.js",
+      ".next/static/chunks/0-9gk1hk-054s.js",
+      ".next/static/chunks/3l1dhj82th62m.js",
+      ".next/static/chunks/19l-2xc1tsrzb.js",
+      ".next/static/chunks/2njoh4fgj0nmz.js",
+      ".next/static/chunks/turbopack-0xjeitz0peg8p.js"
+    ]
+  },
+  {
+    "route": "/brochures",
+    "firstLoadUncompressedJsBytes": 489677,
+    "firstLoadChunkPaths": [
+      ".next/static/chunks/18u_8r_n0u1o2.js",
+      ".next/static/chunks/0-9gk1hk-054s.js",
+      ".next/static/chunks/3l1dhj82th62m.js",
+      ".next/static/chunks/19l-2xc1tsrzb.js",
+      ".next/static/chunks/2njoh4fgj0nmz.js",
+      ".next/static/chunks/turbopack-0xjeitz0peg8p.js"
+    ]
+  },
+  {
+    "route": "/data-sources",
+    "firstLoadUncompressedJsBytes": 489677,
+    "firstLoadChunkPaths": [
+      ".next/static/chunks/18u_8r_n0u1o2.js",
+      ".next/static/chunks/0-9gk1hk-054s.js",
+      ".next/static/chunks/3l1dhj82th62m.js",
+      ".next/static/chunks/19l-2xc1tsrzb.js",
+      ".next/static/chunks/2njoh4fgj0nmz.js",
+      ".next/static/chunks/turbopack-0xjeitz0peg8p.js"
+    ]
+  },
+  {
+    "route": "/deals",
+    "firstLoadUncompressedJsBytes": 489677,
+    "firstLoadChunkPaths": [
+      ".next/static/chunks/18u_8r_n0u1o2.js",
+      ".next/static/chunks/0-9gk1hk-054s.js",
+      ".next/static/chunks/3l1dhj82th62m.js",
+      ".next/static/chunks/19l-2xc1tsrzb.js",
+      ".next/static/chunks/2njoh4fgj0nmz.js",
+      ".next/static/chunks/turbopack-0xjeitz0peg8p.js"
+    ]
+  },
+  {
+    "route": "/ingestion-reviews",
+    "firstLoadUncompressedJsBytes": 489677,
+    "firstLoadChunkPaths": [
+      ".next/static/chunks/18u_8r_n0u1o2.js",
+      ".next/static/chunks/0-9gk1hk-054s.js",
+      ".next/static/chunks/3l1dhj82th62m.js",
+      ".next/static/chunks/19l-2xc1tsrzb.js",
+      ".next/static/chunks/2njoh4fgj0nmz.js",
+      ".next/static/chunks/turbopack-0xjeitz0peg8p.js"
+    ]
+  },
+  {
+    "route": "/ingestion-runs",
+    "firstLoadUncompressedJsBytes": 489677,
+    "firstLoadChunkPaths": [
+      ".next/static/chunks/18u_8r_n0u1o2.js",
+      ".next/static/chunks/0-9gk1hk-054s.js",
+      ".next/static/chunks/3l1dhj82th62m.js",
+      ".next/static/chunks/19l-2xc1tsrzb.js",
+      ".next/static/chunks/2njoh4fgj0nmz.js",
+      ".next/static/chunks/turbopack-0xjeitz0peg8p.js"
+    ]
+  },
+  {
+    "route": "/notifications",
+    "firstLoadUncompressedJsBytes": 489677,
+    "firstLoadChunkPaths": [
+      ".next/static/chunks/18u_8r_n0u1o2.js",
+      ".next/static/chunks/0-9gk1hk-054s.js",
+      ".next/static/chunks/3l1dhj82th62m.js",
+      ".next/static/chunks/19l-2xc1tsrzb.js",
+      ".next/static/chunks/2njoh4fgj0nmz.js",
+      ".next/static/chunks/turbopack-0xjeitz0peg8p.js"
+    ]
+  },
+  {
+    "route": "/prices",
+    "firstLoadUncompressedJsBytes": 489677,
+    "firstLoadChunkPaths": [
+      ".next/static/chunks/18u_8r_n0u1o2.js",
+      ".next/static/chunks/0-9gk1hk-054s.js",
+      ".next/static/chunks/3l1dhj82th62m.js",
+      ".next/static/chunks/19l-2xc1tsrzb.js",
+      ".next/static/chunks/2njoh4fgj0nmz.js",
+      ".next/static/chunks/turbopack-0xjeitz0peg8p.js"
+    ]
+  },
+  {
+    "route": "/products",
+    "firstLoadUncompressedJsBytes": 489677,
+    "firstLoadChunkPaths": [
+      ".next/static/chunks/18u_8r_n0u1o2.js",
+      ".next/static/chunks/0-9gk1hk-054s.js",
+      ".next/static/chunks/3l1dhj82th62m.js",
+      ".next/static/chunks/19l-2xc1tsrzb.js",
+      ".next/static/chunks/2njoh4fgj0nmz.js",
+      ".next/static/chunks/turbopack-0xjeitz0peg8p.js"
+    ]
+  },
+  {
+    "route": "/promotions",
+    "firstLoadUncompressedJsBytes": 489677,
+    "firstLoadChunkPaths": [
+      ".next/static/chunks/18u_8r_n0u1o2.js",
+      ".next/static/chunks/0-9gk1hk-054s.js",
+      ".next/static/chunks/3l1dhj82th62m.js",
+      ".next/static/chunks/19l-2xc1tsrzb.js",
+      ".next/static/chunks/2njoh4fgj0nmz.js",
+      ".next/static/chunks/turbopack-0xjeitz0peg8p.js"
+    ]
+  },
+  {
+    "route": "/retailer-products",
+    "firstLoadUncompressedJsBytes": 489677,
+    "firstLoadChunkPaths": [
+      ".next/static/chunks/18u_8r_n0u1o2.js",
+      ".next/static/chunks/0-9gk1hk-054s.js",
+      ".next/static/chunks/3l1dhj82th62m.js",
+      ".next/static/chunks/19l-2xc1tsrzb.js",
+      ".next/static/chunks/2njoh4fgj0nmz.js",
+      ".next/static/chunks/turbopack-0xjeitz0peg8p.js"
+    ]
+  },
+  {
+    "route": "/reviews",
+    "firstLoadUncompressedJsBytes": 489677,
+    "firstLoadChunkPaths": [
+      ".next/static/chunks/18u_8r_n0u1o2.js",
+      ".next/static/chunks/0-9gk1hk-054s.js",
+      ".next/static/chunks/3l1dhj82th62m.js",
+      ".next/static/chunks/19l-2xc1tsrzb.js",
+      ".next/static/chunks/2njoh4fgj0nmz.js",
+      ".next/static/chunks/turbopack-0xjeitz0peg8p.js"
+    ]
+  },
+  {
+    "route": "/_not-found",
+    "firstLoadUncompressedJsBytes": 465978,
+    "firstLoadChunkPaths": [
+      ".next/static/chunks/18u_8r_n0u1o2.js",
+      ".next/static/chunks/3l1dhj82th62m.js",
+      ".next/static/chunks/19l-2xc1tsrzb.js",
+      ".next/static/chunks/2njoh4fgj0nmz.js",
+      ".next/static/chunks/turbopack-0xjeitz0peg8p.js"
+    ]
+  }
+]

@@ -1,0 +1,7 @@
+{
+  "name": "@market/ingestion", "version": "0.1.0", "private": true, "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc --noEmit", "lint": "eslint src", "test": "vitest run --fileParallelism=false", "build": "tsc --noEmit", "ingest": "tsx src/cli.ts", "ingest:open-prices": "tsx src/open-prices-cli.ts", "ingest:brochure": "tsx src/brochure-cli.ts", "brochure:review": "tsx src/brochure-review-cli.ts" },
+  "dependencies": { "@market/database": "workspace:*", "@market/domain": "workspace:*", "zod": "^3.25.76" },
+  "devDependencies": { "@market/evaluation": "workspace:*" }
+}

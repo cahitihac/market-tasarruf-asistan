@@ -1,0 +1,4 @@
+Mock PDF fixture for Phase 9 brochure ingestion tests.
+This is not real retailer data and is not a valid production brochure.
+The deterministic mock extraction provider recognizes the file extension and
+returns a realistic structured grocery-offer fixture.

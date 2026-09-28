@@ -1,0 +1,18 @@
+{
+  "/_global-error/page": "/_global-error",
+  "/_not-found/page": "/_not-found",
+  "/alerts/page": "/alerts",
+  "/audit-logs/page": "/audit-logs",
+  "/brochures/page": "/brochures",
+  "/data-sources/page": "/data-sources",
+  "/deals/page": "/deals",
+  "/ingestion-reviews/page": "/ingestion-reviews",
+  "/ingestion-runs/page": "/ingestion-runs",
+  "/notifications/page": "/notifications",
+  "/page": "/",
+  "/prices/page": "/prices",
+  "/products/page": "/products",
+  "/promotions/page": "/promotions",
+  "/retailer-products/page": "/retailer-products",
+  "/reviews/page": "/reviews"
+}

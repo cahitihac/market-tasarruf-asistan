@@ -1,0 +1,16 @@
+{
+  "rows": [
+    {
+      "retailer": "Migros", "branch": "Migros Istanbul Demo", "externalProductId": "ANOMALY-CURRENCY",
+      "productName": "Finish Quantum 72 tablets", "ean": "8690570568127", "brand": "Finish",
+      "category": "dishwasher-tablets", "packageQuantity": 72, "packageUnit": "piece", "packageCount": 1,
+      "currentPrice": "279.00", "currency": "USD", "observedAt": "2026-09-23T09:00:00Z"
+    },
+    {
+      "retailer": "Migros", "branch": "Migros Istanbul Demo", "externalProductId": "ANOMALY-PRICE",
+      "productName": "Finish Quantum 72 tablets", "ean": "8690570568127", "brand": "Finish",
+      "category": "dishwasher-tablets", "packageQuantity": 72, "packageUnit": "piece", "packageCount": 1,
+      "currentPrice": "99999.00", "observedAt": "2026-09-23T09:01:00Z"
+    }
+  ]
+}

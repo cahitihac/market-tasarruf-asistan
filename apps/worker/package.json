@@ -1,0 +1,5 @@
+{
+  "name": "@market/worker", "version": "0.1.0", "private": true, "type": "module",
+  "scripts": { "dev": "tsx src/worker.ts", "trigger": "tsx src/trigger.ts", "build": "tsc --noEmit", "typecheck": "tsc --noEmit", "lint": "eslint src", "test": "vitest run --passWithNoTests" },
+  "dependencies": { "@market/config": "workspace:*", "@market/database": "workspace:*", "@market/evaluation": "workspace:*", "@market/ingestion": "workspace:*", "bullmq": "^5.58.0" }
+}
