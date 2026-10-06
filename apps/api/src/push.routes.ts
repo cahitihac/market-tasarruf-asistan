@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { notificationPreferencesInputSchema, pushDeviceInputSchema } from '@market/contracts';
-import { Prisma, prisma } from '@market/database';
+import { Database, database } from '@market/database';
 import { z } from 'zod';
 import { requireConsumer, type ConsumerRequest } from './consumer-auth.js';
 
@@ -13,9 +13,9 @@ function validationError(reply: FastifyReply, error: z.ZodError) {
 }
 
 function serializePreferences(preferences: {
-  dealAlertsEnabled: boolean;
-  greatDealEnabled: boolean;
-  buyEnabled: boolean;
+  dealAlertsEnabled?: boolean;
+  greatDealEnabled?: boolean;
+  buyEnabled?: boolean;
   updatedAt?: Date | null;
 } | null) {
   return {
@@ -28,16 +28,16 @@ function serializePreferences(preferences: {
 
 export async function disableDevicesForSession(userId: string, sessionId: string | undefined, now = new Date()) {
   if (!sessionId) return;
-  await prisma.pushDevice.updateMany({ where: { userId, sessionId, disabledAt: null }, data: { disabledAt: now } });
-  await prisma.notificationDelivery.updateMany({ where: {
+  await database.pushDevice.updateMany({ where: { userId, sessionId, disabledAt: null }, data: { disabledAt: now } });
+  await database.notificationDelivery.updateMany({ where: {
     status: 'PENDING',
     pushDevice: { userId, sessionId },
   }, data: { status: 'SKIPPED', failedAt: now, lastError: 'Session revoked before push delivery.' } });
 }
 
 export async function disableDevicesForUser(userId: string, now = new Date()) {
-  await prisma.pushDevice.updateMany({ where: { userId, disabledAt: null }, data: { disabledAt: now } });
-  await prisma.notificationDelivery.updateMany({ where: {
+  await database.pushDevice.updateMany({ where: { userId, disabledAt: null }, data: { disabledAt: now } });
+  await database.notificationDelivery.updateMany({ where: {
     status: 'PENDING',
     notification: { userId },
   }, data: { status: 'SKIPPED', failedAt: now, lastError: 'Account disabled before push delivery.' } });
@@ -47,7 +47,7 @@ export async function registerPushRoutes(app: FastifyInstance) {
   app.get('/push/devices', async (request, reply) => {
     const user = await requireConsumer(request, reply);
     if (!user) return;
-    return { devices: await prisma.pushDevice.findMany({ where: { userId: user.id, disabledAt: null },
+    return { devices: await database.pushDevice.findMany({ where: { userId: user.id, disabledAt: null },
       orderBy: { lastSeenAt: 'desc' } }) };
   });
 
@@ -62,7 +62,7 @@ export async function registerPushRoutes(app: FastifyInstance) {
     const now = new Date();
     const sessionId = (request as ConsumerRequest).consumerSessionId;
     try {
-      const device = await prisma.pushDevice.upsert({
+      const device = await database.pushDevice.upsert({
         where: { expoPushToken: parsed.data.expoPushToken },
         create: { userId: user.id, sessionId, lastSeenAt: now, ...parsed.data },
         update: { userId: user.id, sessionId, disabledAt: null, lastSeenAt: now,
@@ -70,7 +70,7 @@ export async function registerPushRoutes(app: FastifyInstance) {
       });
       return reply.code(201).send(device);
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      if (error instanceof Database.RequestError && error.code === 'P2002') {
         return reply.code(409).send({ error: 'DEVICE_TOKEN_CONFLICT' });
       }
       throw error;
@@ -80,7 +80,7 @@ export async function registerPushRoutes(app: FastifyInstance) {
   app.delete<{ Params: { id: string } }>('/push/devices/:id', async (request, reply) => {
     const user = await requireConsumer(request, reply);
     if (!user) return;
-    const result = await prisma.pushDevice.updateMany({ where: { id: request.params.id, userId: user.id, disabledAt: null },
+    const result = await database.pushDevice.updateMany({ where: { id: request.params.id, userId: user.id, disabledAt: null },
       data: { disabledAt: new Date() } });
     if (result.count === 0) return reply.code(404).send({ error: 'PUSH_DEVICE_NOT_FOUND' });
     return reply.code(204).send();
@@ -89,7 +89,7 @@ export async function registerPushRoutes(app: FastifyInstance) {
   app.get('/push/preferences', async (request, reply) => {
     const user = await requireConsumer(request, reply);
     if (!user) return;
-    const preferences = await prisma.notificationPreference.findUnique({ where: { userId: user.id } });
+    const preferences = await database.notificationPreference.findUnique({ where: { userId: user.id } });
     return serializePreferences(preferences);
   });
 
@@ -98,7 +98,7 @@ export async function registerPushRoutes(app: FastifyInstance) {
     if (!user) return;
     const parsed = notificationPreferencesInputSchema.safeParse(request.body);
     if (!parsed.success) return validationError(reply, parsed.error);
-    const preferences = await prisma.notificationPreference.upsert({
+    const preferences = await database.notificationPreference.upsert({
       where: { userId: user.id },
       create: { userId: user.id, ...parsed.data },
       update: parsed.data,

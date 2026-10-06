@@ -21,4 +21,4 @@ Supported constraints are `preferredBrands`, `alternativeBrands`, `excludedBrand
 
 Matching uses exact category when supplied, otherwise a deterministic category/name match. Brand, package, unit price, and distance constraints are evaluated without AI. Preferred brands receive a higher match score than alternatives; deal quality contributes 40% of final rank and can change their order. Only approved canonical mappings and current TRY observations from the last 72 hours appear. Each offer includes canonical and retailer products, retailer/branch, current and regular prices, unit price, 7/30/90-day statistics, deal score, recommendation, reasons, match score and reasons, and final rank.
 
-`400` means invalid input, `422` means an unknown explicit category, and `404` means the active need was not found. Archived needs remain in PostgreSQL for future audit and are hidden from active reads.
+`400` means invalid input, `422` means an unknown explicit category, and `404` means the active need was not found. Archived needs remain in DynamoDB for future audit and are hidden from active reads.

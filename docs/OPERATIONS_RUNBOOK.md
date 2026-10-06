@@ -52,8 +52,8 @@
 ## Safely restart the platform
 
 1. Stop API, worker and admin dashboard processes.
-2. Keep PostgreSQL and Redis running unless infrastructure maintenance requires otherwise.
-3. Start PostgreSQL and Redis first.
+2. Keep DynamoDB Local and Redis running unless infrastructure maintenance requires otherwise.
+3. Start DynamoDB Local and Redis first.
 4. Run migrations, then `pnpm db:verify`.
 5. Start API.
 6. Start worker and confirm `worker_ready`.

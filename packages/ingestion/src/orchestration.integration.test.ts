@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
-import { prisma } from '@market/database';
+import { database } from '@market/database';
 import { matchingOffers } from '@market/evaluation';
 import { approveIngestionReview } from './ingestion-review.js';
 import { drainMockOperationalAlerts, upsertOperationalAlert } from './operational-alerts.js';
@@ -16,7 +16,7 @@ describe.sequential('scheduled source orchestration', () => {
   const sourceIds: string[] = [];
 
   async function createSource(slug: string, localPath: string, overrides = {}) {
-    const source = await prisma.dataSource.create({ data: {
+    const source = await database.dataSource.create({ data: {
       slug, name: slug, owner: 'integration test', connectorType: 'JSON',
       authorizationStatus: 'AUTHORIZED', onboardingStatus: 'APPROVED',
       enabled: true, scheduleEveryMs: 10_000,
@@ -29,31 +29,31 @@ describe.sequential('scheduled source orchestration', () => {
   }
 
   afterAll(async () => {
-    const runs = await prisma.ingestionRun.findMany({ where: { dataSourceId: { in: sourceIds } }, select: { id: true } });
+    const runs = await database.ingestionRun.findMany({ where: { dataSourceId: { in: sourceIds } }, select: { id: true } });
     const runIds = runs.map(run => run.id);
-    const observations = await prisma.priceObservation.findMany({ where: { ingestionRunId: { in: runIds } },
+    const observations = await database.priceObservation.findMany({ where: { ingestionRunId: { in: runIds } },
       select: { id: true, promotionId: true, retailerProductId: true } });
     const observationIds = observations.map(item => item.id);
     const promotionIds = observations.map(item => item.promotionId).filter((value): value is string => Boolean(value));
-    await prisma.notification.deleteMany({ where: { alert: { deal: { observationId: { in: observationIds } } } } });
-    await prisma.alert.deleteMany({ where: { deal: { observationId: { in: observationIds } } } });
-    await prisma.recommendation.deleteMany({ where: { deal: { observationId: { in: observationIds } } } });
-    await prisma.deal.deleteMany({ where: { observationId: { in: observationIds } } });
-    const reviewItems = await prisma.ingestionReviewItem.findMany({ where: { ingestionRow: { runId: { in: runIds } } },
+    await database.notification.deleteMany({ where: { alert: { deal: { observationId: { in: observationIds } } } } });
+    await database.alert.deleteMany({ where: { deal: { observationId: { in: observationIds } } } });
+    await database.recommendation.deleteMany({ where: { deal: { observationId: { in: observationIds } } } });
+    await database.deal.deleteMany({ where: { observationId: { in: observationIds } } });
+    const reviewItems = await database.ingestionReviewItem.findMany({ where: { ingestionRow: { runId: { in: runIds } } },
       select: { id: true } });
-    await prisma.ingestionReviewEvent.deleteMany({ where: { ingestionReviewItemId: { in: reviewItems.map(item => item.id) } } });
-    await prisma.ingestionReviewItem.deleteMany({ where: { id: { in: reviewItems.map(item => item.id) } } });
-    await prisma.ingestionRow.deleteMany({ where: { runId: { in: runIds } } });
-    await prisma.priceObservation.deleteMany({ where: { id: { in: observationIds } } });
-    await prisma.priceHistory.deleteMany({ where: { retailerProductId: { in: observations.map(item => item.retailerProductId) } } });
-    await prisma.promotion.deleteMany({ where: { id: { in: promotionIds } } });
-    await prisma.ingestionRun.deleteMany({ where: { id: { in: runIds } } });
-    await prisma.operationalAlert.deleteMany({ where: { OR: [
+    await database.ingestionReviewEvent.deleteMany({ where: { ingestionReviewItemId: { in: reviewItems.map(item => item.id) } } });
+    await database.ingestionReviewItem.deleteMany({ where: { id: { in: reviewItems.map(item => item.id) } } });
+    await database.ingestionRow.deleteMany({ where: { runId: { in: runIds } } });
+    await database.priceObservation.deleteMany({ where: { id: { in: observationIds } } });
+    await database.priceHistory.deleteMany({ where: { retailerProductId: { in: observations.map(item => item.retailerProductId) } } });
+    await database.promotion.deleteMany({ where: { id: { in: promotionIds } } });
+    await database.ingestionRun.deleteMany({ where: { id: { in: runIds } } });
+    await database.operationalAlert.deleteMany({ where: { OR: [
       { dataSourceId: { in: sourceIds } }, { dedupeKey: `phase16:${sourceSlug}:dedupe` },
     ] } });
-    await prisma.dataSourceApprovalEvent.deleteMany({ where: { dataSourceId: { in: sourceIds } } });
-    await prisma.dataSource.deleteMany({ where: { id: { in: sourceIds } } });
-    await prisma.$disconnect();
+    await database.dataSourceApprovalEvent.deleteMany({ where: { dataSourceId: { in: sourceIds } } });
+    await database.dataSource.deleteMany({ where: { id: { in: sourceIds } } });
+    await database.$disconnect();
   });
 
   it('runs an authorized local fixture source, records source state and targets affected needs', async () => {
@@ -64,36 +64,36 @@ describe.sequential('scheduled source orchestration', () => {
     expect(result.run.observationsCreatedCount).toBeGreaterThan(0);
     expect(result.affectedNeedIds).toContain('consumer1-dishwasher-tablets');
     expect(result.affectedNeedIds).not.toContain('consumer2-olive-oil');
-    const observation = await prisma.priceObservation.findFirstOrThrow({ where: { ingestionRunId: result.run.id } });
+    const observation = await database.priceObservation.findFirstOrThrow({ where: { ingestionRunId: result.run.id } });
     expect(observation.verificationStatus).toBe('DEMO');
     expect(await affectedNeedIdsForRun(result.run.id)).toEqual(result.affectedNeedIds);
     const freshness = await inspectSourceFreshness(source.id);
     expect(freshness.freshObservations).toBeGreaterThan(0);
-    const updated = await prisma.dataSource.findUniqueOrThrow({ where: { id: source.id } });
+    const updated = await database.dataSource.findUniqueOrThrow({ where: { id: source.id } });
     expect(updated.lastRunId).toBe(result.run.id);
     expect(updated.lastSuccessfulRunAt).toBeTruthy();
   });
 
   it('replays without duplicate observations or promotions', async () => {
-    const source = await prisma.dataSource.findUniqueOrThrow({ where: { slug: sourceSlug } });
-    const before = await prisma.priceObservation.count({ where: { ingestionRun: { dataSourceId: source.id } } });
+    const source = await database.dataSource.findUniqueOrThrow({ where: { slug: sourceSlug } });
+    const before = await database.priceObservation.count({ where: { ingestionRun: { dataSourceId: source.id } } });
     const result = await runRegisteredSource(source.id, { trigger: 'DEVELOPMENT', jobId: 'test-job-2' });
     expect(result.run.observationsCreatedCount).toBe(0);
     expect(result.run.duplicatesSkippedCount).toBeGreaterThan(0);
-    expect(await prisma.priceObservation.count({ where: { ingestionRun: { dataSourceId: source.id } } })).toBe(before);
+    expect(await database.priceObservation.count({ where: { ingestionRun: { dataSourceId: source.id } } })).toBe(before);
   });
 
   it('prevents disabled, unauthorized and overlapping runs', async () => {
-    const source = await prisma.dataSource.findUniqueOrThrow({ where: { slug: sourceSlug } });
-    await prisma.dataSource.update({ where: { id: source.id }, data: { enabled: false } });
+    const source = await database.dataSource.findUniqueOrThrow({ where: { slug: sourceSlug } });
+    await database.dataSource.update({ where: { id: source.id }, data: { enabled: false } });
     await expect(runRegisteredSource(source.id, { trigger: 'DEVELOPMENT' })).rejects.toMatchObject({ code: 'SOURCE_DISABLED' });
-    await prisma.dataSource.update({ where: { id: source.id }, data: { enabled: true,
+    await database.dataSource.update({ where: { id: source.id }, data: { enabled: true,
       authorizationStatus: 'UNVERIFIED' } });
     await expect(runRegisteredSource(source.id, { trigger: 'SCHEDULED' })).rejects.toMatchObject({ code: 'SOURCE_NOT_AUTHORIZED' });
-    await prisma.dataSource.update({ where: { id: source.id }, data: { authorizationStatus: 'AUTHORIZED',
+    await database.dataSource.update({ where: { id: source.id }, data: { authorizationStatus: 'AUTHORIZED',
       operationalStatus: 'RUNNING', lastRunAt: new Date() } });
     await expect(runRegisteredSource(source.id, { trigger: 'DEVELOPMENT' })).rejects.toBeInstanceOf(IngestionSkippedError);
-    const alert = await prisma.operationalAlert.findUnique({ where: { dedupeKey: `source:${source.id}:overlap` } });
+    const alert = await database.operationalAlert.findUnique({ where: { dedupeKey: `source:${source.id}:overlap` } });
     expect(alert?.status).toBe('OPEN');
   });
 
@@ -103,31 +103,31 @@ describe.sequential('scheduled source orchestration', () => {
     expect(result.run.status).toBe('FAILED');
     expect(result.run.failureCount).toBe(2);
     expect(result.run.observationsCreatedCount).toBe(0);
-    const rows = await prisma.ingestionRow.findMany({ where: { runId: result.run.id }, orderBy: { rowNumber: 'asc' } });
+    const rows = await database.ingestionRow.findMany({ where: { runId: result.run.id }, orderBy: { rowNumber: 'asc' } });
     expect(rows.map(row => row.status)).toEqual(['FAILED', 'FAILED']);
     expect(rows.map(row => row.reason).join(' ')).toContain('requires review');
-    expect(await prisma.ingestionReviewItem.count({ where: { ingestionRow: { runId: result.run.id } } })).toBe(2);
-    const need = await prisma.userNeed.findUniqueOrThrow({ where: { id: 'consumer1-dishwasher-tablets' },
+    expect(await database.ingestionReviewItem.count({ where: { ingestionRow: { runId: result.run.id } } })).toBe(2);
+    const need = await database.userNeed.findUniqueOrThrow({ where: { id: 'consumer1-dishwasher-tablets' },
       include: { category: { select: { slug: true, name: true } } } });
     expect((await matchingOffers(need, { preferredBrands: ['Finish'], minimumCount: 40 })).some(offer =>
       offer.retailerProduct.externalId.includes('ANOMALY'))).toBe(false);
   });
 
   it('approves a corrected anomalous record through the review queue', async () => {
-    const source = await prisma.dataSource.findUniqueOrThrow({ where: { slug: anomalySlug } });
-    const review = await prisma.ingestionReviewItem.findFirstOrThrow({ where: {
+    const source = await database.dataSource.findUniqueOrThrow({ where: { slug: anomalySlug } });
+    const review = await database.ingestionReviewItem.findFirstOrThrow({ where: {
       ingestionRow: { run: { dataSourceId: source.id }, rowNumber: 1 },
       state: 'PENDING',
     } });
-    const variant = await prisma.productVariant.findFirstOrThrow({ where: {
+    const variant = await database.productVariant.findFirstOrThrow({ where: {
       product: { name: 'Finish Quantum 72 tablets' },
     } });
     const result = await approveIngestionReview({ reviewItemId: review.id, variantId: variant.id,
       correctedValues: { currency: 'TRY' }, note: 'fixture correction during integration test' });
     expect(result.run.observationsCreatedCount).toBe(1);
-    const updated = await prisma.ingestionReviewItem.findUniqueOrThrow({ where: { id: review.id } });
+    const updated = await database.ingestionReviewItem.findUniqueOrThrow({ where: { id: review.id } });
     expect(updated.state).toBe('MATCHED');
-    expect(await prisma.ingestionReviewEvent.count({ where: { ingestionReviewItemId: review.id } })).toBeGreaterThan(0);
+    expect(await database.ingestionReviewEvent.count({ where: { ingestionReviewItemId: review.id } })).toBeGreaterThan(0);
   });
 
   it('deduplicates external operational alerts', async () => {

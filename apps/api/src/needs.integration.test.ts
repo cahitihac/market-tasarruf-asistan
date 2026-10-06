@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { prisma } from '@market/database';
+import { database } from '@market/database';
 import { buildApp } from './app.js';
 
-describe('User Needs API with seeded PostgreSQL', () => {
+describe('User Needs API with seeded DynamoDB', () => {
   let app: FastifyInstance;
   let token: string;
   let userId: string;
@@ -18,9 +18,9 @@ describe('User Needs API with seeded PostgreSQL', () => {
     userId = response.json().user.id;
   });
   afterAll(async () => {
-    await prisma.userNeed.deleteMany({ where: { id: { in: createdIds } } });
-    await prisma.consumerSession.deleteMany({ where: { userId } });
-    if (userId) await prisma.user.delete({ where: { id: userId } });
+    await database.userNeed.deleteMany({ where: { id: { in: createdIds } } });
+    await database.consumerSession.deleteMany({ where: { userId } });
+    if (userId) await database.user.delete({ where: { id: userId } });
     await app.close();
   });
 

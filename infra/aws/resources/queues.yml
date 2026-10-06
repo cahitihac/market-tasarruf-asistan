@@ -1,0 +1,130 @@
+Resources:
+  EvaluationDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: market-assistant-${sls:stage}-evaluation-dlq
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  EvaluationQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: market-assistant-${sls:stage}-evaluation
+      VisibilityTimeout: 5400
+      MessageRetentionPeriod: 345600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn:
+          Fn::GetAtt: [EvaluationDlq, Arn]
+        maxReceiveCount: 3
+
+  IngestionDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: market-assistant-${sls:stage}-ingestion-dlq
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  IngestionQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: market-assistant-${sls:stage}-ingestion
+      VisibilityTimeout: 5400
+      MessageRetentionPeriod: 345600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn:
+          Fn::GetAtt: [IngestionDlq, Arn]
+        maxReceiveCount: 3
+
+  PushDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: market-assistant-${sls:stage}-push-dlq
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  PushQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: market-assistant-${sls:stage}-push
+      VisibilityTimeout: 720
+      MessageRetentionPeriod: 345600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn:
+          Fn::GetAtt: [PushDlq, Arn]
+        maxReceiveCount: 3
+
+  PushStatusDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: market-assistant-${sls:stage}-push-status-dlq
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  PushStatusQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: market-assistant-${sls:stage}-push-status
+      VisibilityTimeout: 720
+      MessageRetentionPeriod: 345600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn:
+          Fn::GetAtt: [PushStatusDlq, Arn]
+        maxReceiveCount: 3
+
+  SchedulerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: market-assistant-${sls:stage}-scheduler
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: send-scheduled-jobs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource:
+                  - Fn::GetAtt: [EvaluationQueue, Arn]
+                  - Fn::GetAtt: [IngestionQueue, Arn]
+
+  EvaluationSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: market-assistant-${sls:stage}-evaluation
+      Description: Periodically enqueue evaluation work
+      State: ENABLED
+      ScheduleExpression: ${self:custom.evaluationSchedule}
+      FlexibleTimeWindow:
+        Mode: OFF
+      Target:
+        Arn:
+          Fn::GetAtt: [EvaluationQueue, Arn]
+        RoleArn:
+          Fn::GetAtt: [SchedulerRole, Arn]
+        Input: '{"name":"evaluate-active-needs","data":{}}'
+
+  IngestionSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: market-assistant-${sls:stage}-ingestion
+      Description: Periodically enqueue ingestion and stale-source checks
+      State: ENABLED
+      ScheduleExpression: ${self:custom.ingestionSchedule}
+      FlexibleTimeWindow:
+        Mode: OFF
+      Target:
+        Arn:
+          Fn::GetAtt: [IngestionQueue, Arn]
+        RoleArn:
+          Fn::GetAtt: [SchedulerRole, Arn]
+        Input: '{"name":"run-ingestion","data":{"trigger":"SCHEDULED","checkStale":true}}'

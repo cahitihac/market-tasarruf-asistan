@@ -1,1 +1,0 @@
-ALTER TYPE "PriceSourceType" ADD VALUE 'OPEN_PRICES';

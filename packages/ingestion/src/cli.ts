@@ -1,4 +1,4 @@
-import { prisma } from '@market/database';
+import { database } from '@market/database';
 import { resolve } from 'node:path';
 import { fileConnector } from './connector.js';
 import { ingestPrices } from './ingest.js';
@@ -22,4 +22,4 @@ try {
 } catch (error) {
   console.error(JSON.stringify({ event: 'ingestion_cli_failed', message: error instanceof Error ? error.message : String(error) }));
   process.exitCode = 1;
-} finally { await prisma.$disconnect(); }
+} finally { await database.$disconnect(); }

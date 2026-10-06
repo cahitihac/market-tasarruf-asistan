@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { prisma } from '@market/database';
+import { database } from '@market/database';
 import { evaluateNeed } from '@market/evaluation';
 import { buildApp } from './app.js';
 
@@ -17,8 +17,8 @@ describe('persisted deals, alerts and notifications API', () => {
     const user = registration.json().user;
     userId = user.id;
     token = registration.json().token;
-    const category = await prisma.category.findUniqueOrThrow({ where: { slug: 'dishwasher-tablets' } });
-    const need = await prisma.userNeed.create({ data: { userId: user.id, categoryId: category.id, title: 'Dishwasher tablets',
+    const category = await database.category.findUniqueOrThrow({ where: { slug: 'dishwasher-tablets' } });
+    const need = await database.userNeed.create({ data: { userId: user.id, categoryId: category.id, title: 'Dishwasher tablets',
       constraints: { preferredBrands: ['Finish'], minimumCount: 40, allowAlternatives: false } },
       include: { category: { select: { slug: true, name: true } } } });
     needId = need.id;
@@ -26,14 +26,14 @@ describe('persisted deals, alerts and notifications API', () => {
   });
   afterAll(async () => {
     if (needId) {
-      await prisma.notification.deleteMany({ where: { alert: { needId } } });
-      await prisma.alert.deleteMany({ where: { needId } });
-      await prisma.deal.deleteMany({ where: { needId } });
-      await prisma.userNeed.delete({ where: { id: needId } });
+      await database.notification.deleteMany({ where: { alert: { needId } } });
+      await database.alert.deleteMany({ where: { needId } });
+      await database.deal.deleteMany({ where: { needId } });
+      await database.userNeed.delete({ where: { id: needId } });
     }
     if (userId) {
-      await prisma.consumerSession.deleteMany({ where: { userId } });
-      await prisma.user.delete({ where: { id: userId } });
+      await database.consumerSession.deleteMany({ where: { userId } });
+      await database.user.delete({ where: { id: userId } });
     }
     if (app) await app.close();
   });
@@ -63,7 +63,7 @@ describe('persisted deals, alerts and notifications API', () => {
     const read = await app.inject({ method: 'PATCH', url: `/notifications/${notification.id}/read`, headers: auth() });
     expect(read.statusCode).toBe(200);
     expect(read.json().readAt).not.toBeNull();
-    expect((await prisma.notification.findUniqueOrThrow({ where: { id: notification.id } })).readAt).not.toBeNull();
+    expect((await database.notification.findUniqueOrThrow({ where: { id: notification.id } })).readAt).not.toBeNull();
     expect((await app.inject({ url: '/deals/does-not-exist', headers: auth() })).statusCode).toBe(404);
   });
 });

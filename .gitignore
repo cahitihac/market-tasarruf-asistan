@@ -7,3 +7,5 @@ coverage/
 .DS_Store
 .expo/
 apps/mobile/web-build/
+.serverless/
+.serverless_plugins/

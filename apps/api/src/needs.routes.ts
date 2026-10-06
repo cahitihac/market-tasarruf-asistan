@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { createNeedSchema, needConstraintsSchema, updateNeedSchema, type NeedConstraints } from '@market/contracts';
 import { normalizeName } from '@market/domain';
-import { Prisma } from '@market/database';
+import { Database } from '@market/database';
 import { allCategories, archiveNeed, createNeed, findCategory, getNeed, listNeeds, updateNeed, type NeedRecord } from './needs.repository.js';
 import { matchingOffers } from '@market/evaluation';
 import { requireConsumer } from './consumer-auth.js';
@@ -48,7 +48,7 @@ export async function registerNeedRoutes(app: FastifyInstance) {
     const category = await resolveCategory(parsed.data.name, parsed.data.category);
     if (category.error) return reply.code(422).send({ error: 'UNKNOWN_CATEGORY', message: category.error });
     const need = await createNeed({ userId: user.id, title: parsed.data.name, categoryId: category.id,
-      constraints: constraintsFromInput(parsed.data) as Prisma.InputJsonValue });
+      constraints: constraintsFromInput(parsed.data) as Database.InputJsonValue });
     return reply.code(201).send(serializeNeed(need));
   });
 
@@ -79,7 +79,7 @@ export async function registerNeedRoutes(app: FastifyInstance) {
     }
     const updated = await updateNeed(existing.id, { title,
       categoryId: parsed.data.category === null ? null : category.id ?? existing.categoryId,
-      constraints: needConstraintsSchema.parse(constraints) as Prisma.InputJsonValue });
+      constraints: needConstraintsSchema.parse(constraints) as Database.InputJsonValue });
     return serializeNeed(updated);
   });
 

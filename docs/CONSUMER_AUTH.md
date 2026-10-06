@@ -78,7 +78,7 @@ Mobile still requires:
 
 Backend still requires:
 
-- `DATABASE_URL`
+- `DYNAMODB_TABLE` (and `DYNAMODB_ENDPOINT` for DynamoDB Local)
 - `REDIS_URL` for worker queues.
 
 ## Security Limitations
@@ -100,7 +100,7 @@ Not yet implemented:
 Run the usual project checks:
 
 ```sh
-pnpm db:migrate
+pnpm db:setup
 pnpm db:seed
 pnpm db:verify
 pnpm typecheck

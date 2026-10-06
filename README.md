@@ -10,14 +10,14 @@ Node 24, pnpm 10, Docker Compose. Install pnpm with `corepack enable` if needed.
 cp .env.example .env
 pnpm install
 docker compose -f infra/docker-compose.yml up -d
-pnpm db:generate
-pnpm db:migrate
+
+pnpm db:setup
 pnpm db:seed
 pnpm db:verify
 pnpm dev
 ```
 
-`GET http://127.0.0.1:3001/health` reports process health. `/ready` checks PostgreSQL.
+`GET http://127.0.0.1:3001/health` reports process health. `/ready` checks the configured DynamoDB table.
 Phase 4 need CRUD and ranked offers are documented in [docs/NEEDS_API.md](docs/NEEDS_API.md).
 Phase 5 worker, alert policy and persisted API endpoints are documented in [docs/DEAL_EVALUATION.md](docs/DEAL_EVALUATION.md). In a separate terminal, run `pnpm --filter @market/worker dev` to start scheduled evaluation; run `pnpm --filter @market/worker trigger` to enqueue a manual evaluation and wait for its result.
 Phase 6 mobile setup, emulator addresses, and the live UI walkthrough are documented in [docs/MOBILE_APP.md](docs/MOBILE_APP.md).
@@ -34,7 +34,7 @@ pnpm brochure:review list
 pnpm admin:dev
 ```
 
-The seed is safe to rerun and creates 55 demo retailer listings across Migros, BIM, A101, CarrefourSA and SOK, each with 61 days of sample observations and daily rollups. It intentionally includes a 319 TRY Finish offer at Migros. `pnpm db:verify` checks the chains, counts and special offer against PostgreSQL. These values are fictional and should never be presented as live prices.
+The seed is safe to rerun and creates 55 demo retailer listings across Migros, BIM, A101, CarrefourSA and SOK, each with 61 days of sample observations and daily rollups. It intentionally includes a 319 TRY Finish offer at Migros. `pnpm db:verify` checks the chains, counts and special offer against DynamoDB. These values are fictional and should never be presented as live prices.
 
 Development consumer accounts are seeded for local testing:
 
@@ -58,3 +58,5 @@ pnpm test
 ```
 
 See [architecture](docs/ARCHITECTURE.md), [domain model](docs/DOMAIN_MODEL.md), and [implementation plan](docs/IMPLEMENTATION_PLAN.md).
+
+The AWS serverless deployment foundation is in [infra/aws](infra/aws/README.md). Serverless Framework v4 defines ZIP-based Lambdas, provisioned-capacity DynamoDB, SQS/EventBridge, S3, CloudWatch, and runtime SSM Parameter Store access. The application data layer and local Docker environment use DynamoDB; its item, transaction, and uniqueness guarantees are documented in [the DynamoDB guide](docs/DYNAMODB_MIGRATION.md).

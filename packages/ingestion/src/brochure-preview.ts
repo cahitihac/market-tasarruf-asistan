@@ -1,4 +1,4 @@
-import { prisma } from '@market/database';
+import { database } from '@market/database';
 
 function svgPreview(filename: string, pageNumber: number, mediaType: string) {
   const escaped = filename.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[char]!));
@@ -15,7 +15,7 @@ function svgPreview(filename: string, pageNumber: number, mediaType: string) {
 }
 
 export async function ensureBrochurePagePreviews(brochureId: string) {
-  const brochure = await prisma.brochure.findUniqueOrThrow({ where: { id: brochureId },
+  const brochure = await database.brochure.findUniqueOrThrow({ where: { id: brochureId },
     include: { pages: { orderBy: { pageNumber: 'asc' } } } });
   let created = 0;
   let skipped = 0;
@@ -24,7 +24,7 @@ export async function ensureBrochurePagePreviews(brochureId: string) {
       skipped++;
       continue;
     }
-    await prisma.brochurePage.update({ where: { id: page.id }, data: {
+    await database.brochurePage.update({ where: { id: page.id }, data: {
       imageRef: svgPreview(brochure.originalFilename ?? brochure.sourceIdentifier, page.pageNumber, brochure.mediaType),
       previewFormat: 'svg',
       previewWidth: 900,

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { Prisma, prisma } from '@market/database';
+import { Database, database } from '@market/database';
 import { normalizeName } from '@market/domain';
 import type { PriceSourceConnector } from './connector.js';
 import { createIngestionReviewForRow } from './ingestion-review-queue.js';
@@ -16,7 +16,7 @@ function observationKey(sourceName: string, sourceType: string, chainId: string,
 }
 
 async function catalog(): Promise<CatalogVariant[]> {
-  const variants = await prisma.productVariant.findMany({ include: { product: { include: { brand: true, category: true } } } });
+  const variants = await database.productVariant.findMany({ include: { product: { include: { brand: true, category: true } } } });
   return variants.map(variant => ({ id: variant.id, productName: variant.product.name, ean: variant.product.ean,
     brandName: variant.product.brand?.name ?? null, categorySlug: variant.product.category.slug,
     quantity: variant.quantity, unit: variant.unit, packageCount: variant.packageCount }));
@@ -35,17 +35,17 @@ async function syncProducts(connector: PriceSourceConnector, counters: Counters)
   const records = await connector.getProducts();
   for (const raw of records) {
     const row = catalogProductRecordSchema.parse(raw);
-    const category = await prisma.category.upsert({ where: { slug: row.category },
+    const category = await database.category.upsert({ where: { slug: row.category },
       update: { name: row.categoryName }, create: { slug: row.category, name: row.categoryName } });
     const brandSlug = slug(row.brand);
-    const brand = await prisma.brand.upsert({ where: { slug: brandSlug }, update: { name: row.brand },
+    const brand = await database.brand.upsert({ where: { slug: brandSlug }, update: { name: row.brand },
       create: { slug: brandSlug, name: row.brand } });
-    const existing = await prisma.product.findUnique({ where: { ean: row.ean } });
-    const product = existing ? await prisma.product.update({ where: { id: existing.id }, data: {
+    const existing = await database.product.findUnique({ where: { ean: row.ean } });
+    const product = existing ? await database.product.update({ where: { id: existing.id }, data: {
       name: row.productName, normalizedName: normalizeName(row.productName), categoryId: category.id, brandId: brand.id,
-    } }) : await prisma.product.create({ data: { name: row.productName, normalizedName: normalizeName(row.productName),
+    } }) : await database.product.create({ data: { name: row.productName, normalizedName: normalizeName(row.productName),
       ean: row.ean, categoryId: category.id, brandId: brand.id } });
-    await prisma.productVariant.upsert({ where: { productId_quantity_unit_packageCount: { productId: product.id,
+    await database.productVariant.upsert({ where: { productId_quantity_unit_packageCount: { productId: product.id,
       quantity: row.packageQuantity, unit: row.packageUnit, packageCount: row.packageCount } }, update: {},
     create: { productId: product.id, label: `${row.packageQuantity} ${row.packageUnit}`,
       quantity: row.packageQuantity, unit: row.packageUnit, packageCount: row.packageCount } });
@@ -64,7 +64,7 @@ export interface IngestRunOptions {
 export async function ingestPrices(connector: PriceSourceConnector, options: IngestRunOptions = {}) {
   if (!connector.capabilities.prices) throw new Error('Connector does not support prices');
   const { source } = connector;
-  const run = await prisma.ingestionRun.create({ data: { source: source.name, sourceType: source.type,
+  const run = await database.ingestionRun.create({ data: { source: source.name, sourceType: source.type,
     sourceIdentifier: source.identifier, sourceUrl: source.url, checksum: source.checksum,
     dataSourceId: options.dataSourceId, trigger: options.trigger ?? 'MANUAL',
     jobId: options.jobId, attempt: options.attempt ?? 1 } });
@@ -76,7 +76,7 @@ export async function ingestPrices(connector: PriceSourceConnector, options: Ing
     const rows = await connector.getPrices();
     await syncProducts(connector, counters);
     const variants = await catalog();
-    const chains = await prisma.storeChain.findMany();
+    const chains = await database.storeChain.findMany();
     for (const [index, raw] of rows.entries()) {
       const rowNumber = index + 1;
       const rawPayloadHash = hash(raw);
@@ -93,25 +93,25 @@ export async function ingestPrices(connector: PriceSourceConnector, options: Ing
         if (!chain) throw new Error(`Unknown retailer: ${row.retailer}`);
         const externalId = row.externalProductId ? `feed:${source.name}:${row.externalProductId}` :
           `feed:${source.name}:${hash([normalizeName(row.productName), normalizeName(row.brand), row.packageQuantity, row.packageUnit, row.packageCount]).slice(0, 24)}`;
-        const mapped = await prisma.retailerProduct.findUnique({ where: { chainId_externalId: { chainId: chain.id, externalId } } });
+        const mapped = await database.retailerProduct.findUnique({ where: { chainId_externalId: { chainId: chain.id, externalId } } });
         const match = matchCatalogProduct(row, variants, mapped?.variantId);
         if (!match.variant) {
           counters.unmatchedCount++;
-          const ingestionRow = await prisma.ingestionRow.create({ data: { runId: run.id, rowNumber, status: 'UNMATCHED', rawPayloadHash,
-            rawPayload: raw as Prisma.InputJsonValue, reason: match.reason } });
+          const ingestionRow = await database.ingestionRow.create({ data: { runId: run.id, rowNumber, status: 'UNMATCHED', rawPayloadHash,
+            rawPayload: raw as Database.InputJsonValue, reason: match.reason } });
           await createIngestionReviewForRow(ingestionRow.id);
           continue;
         }
         counters.matchedCount++;
         const sourceKey = observationKey(source.name, source.type, chain.id, row);
-        const duplicate = await prisma.priceObservation.findUnique({ where: { sourceKey } });
+        const duplicate = await database.priceObservation.findUnique({ where: { sourceKey } });
         if (duplicate) {
           counters.successCount++; counters.duplicatesSkippedCount++;
-          await prisma.ingestionRow.create({ data: { runId: run.id, rowNumber, status: 'DUPLICATE', rawPayloadHash,
+          await database.ingestionRow.create({ data: { runId: run.id, rowNumber, status: 'DUPLICATE', rawPayloadHash,
             retailerProductId: duplicate.retailerProductId, observationId: duplicate.id } });
           continue;
         }
-        const result = await prisma.$transaction(async tx => {
+        const result = await database.$transaction(async tx => {
           const existingByEan = row.ean ? await tx.retailerProduct.findFirst({ where: {
             chainId: chain.id, ean: row.ean, variantId: match.variant.id }, orderBy: { id: 'asc' } }) : null;
           const existing = existingByEan ?? mapped;
@@ -179,17 +179,17 @@ export async function ingestPrices(connector: PriceSourceConnector, options: Ing
         const message = reasonFor(error);
         counters.failureCount++;
         if (errors.length < 100) errors.push({ rowNumber, message });
-        const ingestionRow = await prisma.ingestionRow.create({ data: { runId: run.id, rowNumber, status: 'FAILED', rawPayloadHash,
-          rawPayload: raw as Prisma.InputJsonValue, reason: message } });
+        const ingestionRow = await database.ingestionRow.create({ data: { runId: run.id, rowNumber, status: 'FAILED', rawPayloadHash,
+          rawPayload: raw as Database.InputJsonValue, reason: message } });
         await createIngestionReviewForRow(ingestionRow.id);
       }
     }
-    return prisma.ingestionRun.update({ where: { id: run.id }, data: { ...counters, rowCount: rows.length,
+    return database.ingestionRun.update({ where: { id: run.id }, data: { ...counters, rowCount: rows.length,
       errors, status: counters.failureCount === 0 && counters.unmatchedCount === 0 ? 'SUCCEEDED' :
         counters.successCount === 0 && counters.failureCount > 0 ? 'FAILED' : 'PARTIAL', finishedAt: new Date() } });
   } catch (error) {
     const message = reasonFor(error);
-    return prisma.ingestionRun.update({ where: { id: run.id }, data: { ...counters, rowCount: counters.processedCount,
+    return database.ingestionRun.update({ where: { id: run.id }, data: { ...counters, rowCount: counters.processedCount,
       failureCount: counters.failureCount + 1, errors: [...errors, { rowNumber: 0, message }], status: 'FAILED', finishedAt: new Date() } });
   }
 }

@@ -1,5 +1,5 @@
 import { QueueEvents } from 'bullmq';
-import { prisma } from '@market/database';
+import { database } from '@market/database';
 import { evaluationQueue, ingestionJobName, queueName, redisConnection, sourceIngestionQueue, jobName } from '../apps/worker/src/queue.js';
 
 const apiBase = process.env.API_BASE_URL ?? 'http://127.0.0.1:3003';
@@ -36,7 +36,7 @@ async function waitFor<T>(label: string, read: () => Promise<T | null>, timeoutM
 }
 
 async function waitForRun(jobId: string) {
-  return waitFor(`ingestion run ${jobId}`, () => prisma.ingestionRun.findFirst({
+  return waitFor(`ingestion run ${jobId}`, () => database.ingestionRun.findFirst({
     where: { jobId, finishedAt: { not: null } },
     orderBy: { startedAt: 'desc' },
   }), 45_000);
@@ -55,14 +55,14 @@ async function main() {
   });
   const token = String(signIn.token);
 
-  const localSource = await prisma.dataSource.findUniqueOrThrow({ where: { slug: 'local-poc-fixture' } });
+  const localSource = await database.dataSource.findUniqueOrThrow({ where: { slug: 'local-poc-fixture' } });
   const scheduledStartedAfter = new Date();
-  const scheduledRun = await waitFor('scheduled local fixture ingestion', () => prisma.ingestionRun.findFirst({
+  const scheduledRun = await waitFor('scheduled local fixture ingestion', () => database.ingestionRun.findFirst({
     where: { dataSourceId: localSource.id, trigger: 'SCHEDULED', startedAt: { gte: scheduledStartedAfter } },
     orderBy: { startedAt: 'desc' },
   }), 20_000);
 
-  const anomalySource = await prisma.dataSource.create({ data: {
+  const anomalySource = await database.dataSource.create({ data: {
     slug: `phase16-demo-anomaly-${suffix}`,
     name: `Phase 16 anomaly fixture ${suffix}`,
     owner: 'Market Tasarruf Asistani development fixtures',
@@ -92,7 +92,7 @@ async function main() {
   const reviewItems = reviewResponse.reviewItems as Array<{ id: string; reason: string }>;
   const currencyReview = reviewItems.find(item => item.reason.includes('Unexpected currency')) ?? reviewItems[0];
   if (!currencyReview) throw new Error('Expected anomaly fixture to create ingestion review items');
-  const finishVariant = await prisma.productVariant.findFirstOrThrow({ where: {
+  const finishVariant = await database.productVariant.findFirstOrThrow({ where: {
     product: { name: 'Finish Quantum 72 tablets' },
   } });
   const approved = await api(`/admin/ingestion-reviews/${currencyReview.id}/approve`, token, {
@@ -102,13 +102,13 @@ async function main() {
   });
   const approvalRun = (approved.result as JsonObject).run as { id: string; observationsCreatedCount: number; status: string };
 
-  const dishwasherCategory = await prisma.category.findUniqueOrThrow({ where: { slug: 'dishwasher-tablets' } });
-  const demoUser = await prisma.user.create({ data: {
+  const dishwasherCategory = await database.category.findUniqueOrThrow({ where: { slug: 'dishwasher-tablets' } });
+  const demoUser = await database.user.create({ data: {
     email: `phase16-demo-${suffix}@market.local`,
     displayName: `Phase 16 demo ${suffix}`,
     emailVerifiedAt: new Date(),
   } });
-  const demoNeed = await prisma.userNeed.create({ data: {
+  const demoNeed = await database.userNeed.create({ data: {
     userId: demoUser.id,
     categoryId: dishwasherCategory.id,
     title: 'Phase 16 fixture dishwasher tablets',
@@ -125,9 +125,9 @@ async function main() {
   const evalResult = await evalJob.waitUntilFinished(evalEvents, 60_000) as { runId: string };
   await evalEvents.close();
   await evalQueue.close();
-  const evaluation = await prisma.evaluationRun.findUniqueOrThrow({ where: { id: evalResult.runId } });
+  const evaluation = await database.evaluationRun.findUniqueOrThrow({ where: { id: evalResult.runId } });
 
-  const failingSource = await prisma.dataSource.create({ data: {
+  const failingSource = await database.dataSource.create({ data: {
     slug: `phase16-demo-failing-${suffix}`,
     name: `Phase 16 failing fixture ${suffix}`,
     owner: 'Market Tasarruf Asistani development fixtures',
@@ -151,19 +151,19 @@ async function main() {
     notes: 'Phase 16 simulated failure fixture; not real retailer data.',
   } });
   const failingJobId = await queueManualSource(failingSource.id, token);
-  await waitFor('failed ingestion alert', () => prisma.operationalAlert.findFirst({
+  await waitFor('failed ingestion alert', () => database.operationalAlert.findFirst({
     where: { dataSourceId: failingSource.id, kind: 'INGESTION_FAILURE', status: 'OPEN' },
   }), 30_000);
-  const failedRun = await prisma.ingestionRun.findFirst({
+  const failedRun = await database.ingestionRun.findFirst({
     where: { dataSourceId: failingSource.id, status: 'FAILED' },
     orderBy: { startedAt: 'desc' },
   });
-  const failureAlert = await prisma.operationalAlert.findFirstOrThrow({
+  const failureAlert = await database.operationalAlert.findFirstOrThrow({
     where: { dataSourceId: failingSource.id, kind: 'INGESTION_FAILURE' },
     orderBy: { lastSeenAt: 'desc' },
   });
 
-  await prisma.dataSource.update({ where: { id: failingSource.id }, data: {
+  await database.dataSource.update({ where: { id: failingSource.id }, data: {
     config: { localPath: pocPath, sourceUrl: 'fixture://poc-prices.json' },
     feedSpecificationUrl: 'fixture://poc-prices.json',
     feedSpecification: { format: 'JSON', rows: 'fixtures/poc-prices.json' },
@@ -171,16 +171,16 @@ async function main() {
   } });
   const recoveryJobId = await queueManualSource(failingSource.id, token);
   const recoveryRun = await waitForRun(recoveryJobId);
-  const recoveredAlert = await prisma.operationalAlert.findUnique({
+  const recoveredAlert = await database.operationalAlert.findUnique({
     where: { dedupeKey: `source:${failingSource.id}:failed-runs` },
   });
 
   const operations = await api('/admin/operations', token);
   const sources = await api('/admin/data-sources', token);
 
-  const observationCount = await prisma.priceObservation.count({ where: { ingestionRunId: approvalRun.id } });
-  const notificationCount = await prisma.notification.count({ where: { createdAt: { gte: evaluation.startedAt } } });
-  const reviewAfter = await prisma.ingestionReviewItem.findUniqueOrThrow({ where: { id: currencyReview.id },
+  const observationCount = await database.priceObservation.count({ where: { ingestionRunId: approvalRun.id } });
+  const notificationCount = await database.notification.count({ where: { createdAt: { gte: evaluation.startedAt } } });
+  const reviewAfter = await database.ingestionReviewItem.findUniqueOrThrow({ where: { id: currencyReview.id },
     include: { events: true } });
 
   console.log(JSON.stringify({
@@ -262,5 +262,5 @@ main().catch(error => {
     .filter(job => job.name === ingestionJobName && typeof job.id === 'string' && job.id.includes(`phase16-demo`))
     .map(job => job.remove().catch(() => undefined)))).catch(() => undefined);
   await queue.close().catch(() => undefined);
-  await prisma.$disconnect();
+  await database.$disconnect();
 });

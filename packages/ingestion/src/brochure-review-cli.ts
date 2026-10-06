@@ -1,4 +1,4 @@
-import { prisma } from '@market/database';
+import { database } from '@market/database';
 import { approveBrochureReview, listPendingBrochureReviews, rejectBrochureReview } from './brochure.js';
 
 const [command, id, variantId] = process.argv.slice(2);
@@ -31,4 +31,4 @@ try {
 } catch (error) {
   console.error(JSON.stringify({ event: 'brochure_review_failed', message: error instanceof Error ? error.message : String(error) }));
   process.exitCode = 1;
-} finally { await prisma.$disconnect(); }
+} finally { await database.$disconnect(); }

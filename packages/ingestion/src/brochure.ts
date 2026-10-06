@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
-import { Prisma, prisma } from '@market/database';
+import { Database, database } from '@market/database';
 import { normalizeName } from '@market/domain';
 import { amountMinor, isoDate, type ExtractedBrochureOffer } from './brochure-schema.js';
 import { configuredBrochureExtractionProvider, loadBrochureDocument, type BrochureExtractionProvider } from './brochure-provider.js';
@@ -32,7 +32,7 @@ export interface BrochureImportResult {
 }
 
 async function catalog(): Promise<CatalogVariant[]> {
-  const variants = await prisma.productVariant.findMany({ include: { product: { include: { brand: true, category: true } } } });
+  const variants = await database.productVariant.findMany({ include: { product: { include: { brand: true, category: true } } } });
   return variants.map(variant => ({ id: variant.id, productName: variant.product.name, ean: variant.product.ean,
     brandName: variant.product.brand?.name ?? null, categorySlug: variant.product.category.slug,
     quantity: variant.quantity, unit: variant.unit, packageCount: variant.packageCount }));
@@ -103,11 +103,11 @@ function reviewReason(offer: ExtractedBrochureOffer, match: ReturnType<typeof ma
 async function upsertListing(chainId: string, variant: CatalogVariant, offer: ExtractedBrochureOffer, confidence: number) {
   const externalId = offer.ean ? `brochure:ean:${offer.ean}` :
     `brochure:normalized:${hash([chainId, variant.id, normalizeName(offer.productName), offer.packageQuantity, offer.packageUnit, offer.packageCount]).slice(0, 24)}`;
-  const existingByEan = offer.ean ? await prisma.retailerProduct.findFirst({ where: { chainId, ean: offer.ean, variantId: variant.id },
+  const existingByEan = offer.ean ? await database.retailerProduct.findFirst({ where: { chainId, ean: offer.ean, variantId: variant.id },
     orderBy: { id: 'asc' } }) : null;
-  if (existingByEan) return prisma.retailerProduct.update({ where: { id: existingByEan.id }, data: {
+  if (existingByEan) return database.retailerProduct.update({ where: { id: existingByEan.id }, data: {
     rawName: offer.productName, normalizedName: normalizeName(offer.productName), matchConfidence: confidence, reviewState: 'APPROVED' } });
-  return prisma.retailerProduct.upsert({ where: { chainId_externalId: { chainId, externalId } }, update: {
+  return database.retailerProduct.upsert({ where: { chainId_externalId: { chainId, externalId } }, update: {
     rawName: offer.productName, normalizedName: normalizeName(offer.productName), ean: offer.ean ?? undefined,
     variantId: variant.id, matchConfidence: confidence, reviewState: 'APPROVED',
   }, create: { chainId, externalId, rawName: offer.productName, normalizedName: normalizeName(offer.productName),
@@ -115,9 +115,9 @@ async function upsertListing(chainId: string, variant: CatalogVariant, offer: Ex
 }
 
 async function persistApprovedOffer(offerId: string, variant: CatalogVariant, matchConfidence: number) {
-  const offer = await prisma.brochureOffer.findUniqueOrThrow({ where: { id: offerId }, include: { brochure: { include: { chain: true } } } });
+  const offer = await database.brochureOffer.findUniqueOrThrow({ where: { id: offerId }, include: { brochure: { include: { chain: true } } } });
   if (!offer.currentPriceMinor) throw new Error('Cannot approve an offer without a current price');
-  const extracted = offer.rawExtraction as Prisma.JsonObject;
+  const extracted = offer.rawExtraction as Database.JsonObject;
   const listing = await upsertListing(offer.brochure.chainId, variant, {
     retailer: offer.brochure.chain.name, productName: offer.productName, brand: offer.brand ?? null, ean: offer.ean ?? null,
     category: typeof extracted.category === 'string' ? extracted.category : undefined,
@@ -135,7 +135,7 @@ async function persistApprovedOffer(offerId: string, variant: CatalogVariant, ma
   const modeledPromotion = modelPromotion(offer.promotionText, offer.multiBuyText, offer.loyaltyRequired);
   if ((offer.promotionText || offer.regularPriceMinor || offer.loyaltyRequired || offer.multiBuyText) && promoStarts && promoEnds) {
     promotionId = `brochure:${hash([offer.sourceKey, 'promotion']).slice(0, 32)}`;
-    const promotion = await prisma.promotion.upsert({ where: { id: promotionId }, update: {
+    const promotion = await database.promotion.upsert({ where: { id: promotionId }, update: {
       retailerProductId: listing.id, brochureOfferId: offer.id, title: offer.promotionText ?? 'Brochure promotion',
       rawText: offer.promotionText ?? offer.multiBuyText, promotionKind: modeledPromotion.kind,
       percentDiscount: modeledPromotion.percentDiscount, multiBuyQuantity: modeledPromotion.multiBuyQuantity,
@@ -148,36 +148,36 @@ async function persistApprovedOffer(offerId: string, variant: CatalogVariant, ma
       thresholdQuantity: modeledPromotion.thresholdQuantity, thresholdUnit: modeledPromotion.thresholdUnit,
       startsAt: promoStarts, endsAt: promoEnds,
       loyaltyRequired: offer.loyaltyRequired } });
-    await prisma.promotionCondition.deleteMany({ where: { promotionId: promotion.id } });
-    if (offer.loyaltyRequired) await prisma.promotionCondition.create({ data: { promotionId: promotion.id,
+    await database.promotionCondition.deleteMany({ where: { promotionId: promotion.id } });
+    if (offer.loyaltyRequired) await database.promotionCondition.create({ data: { promotionId: promotion.id,
       kind: 'LOYALTY_CARD', value: { required: true } } });
-    if (offer.multiBuyText) await prisma.promotionCondition.create({ data: { promotionId: promotion.id,
+    if (offer.multiBuyText) await database.promotionCondition.create({ data: { promotionId: promotion.id,
       kind: 'MULTI_BUY_TEXT', value: { text: offer.multiBuyText } } });
     const percent = offer.promotionText?.match(/(\d+)\s*%/);
-    if (percent) await prisma.promotionCondition.create({ data: { promotionId: promotion.id,
+    if (percent) await database.promotionCondition.create({ data: { promotionId: promotion.id,
       kind: 'PERCENT_TEXT', value: { percent: Number(percent[1]), rawText: offer.promotionText } } });
   }
-  const created = await prisma.priceObservation.createMany({ data: [{
+  const created = await database.priceObservation.createMany({ data: [{
     sourceKey: offer.sourceKey, retailerProductId: listing.id, promotionId, observedAt, priceMinor: offer.currentPriceMinor,
     regularPriceMinor: offer.regularPriceMinor, currency: 'TRY', sourceType: 'BROCHURE', sourceName: offer.brochure.source,
     sourceIdentifier: offer.brochure.sourceIdentifier, sourceUrl: offer.brochure.sourceUrl, retrievedAt: offer.brochure.importedAt,
     rawPayloadRef: `${offer.brochure.fileHash}:offer:${offer.id}`, confidence: Math.min(offer.confidence ?? 0, matchConfidence),
     verificationStatus: 'SUPPLIED_UNVERIFIED', brochureOfferId: offer.id,
   }], skipDuplicates: true });
-  const observation = await prisma.priceObservation.findUniqueOrThrow({ where: { sourceKey: offer.sourceKey } });
+  const observation = await database.priceObservation.findUniqueOrThrow({ where: { sourceKey: offer.sourceKey } });
   if (created.count) {
     const day = new Date(Date.UTC(observedAt.getUTCFullYear(), observedAt.getUTCMonth(), observedAt.getUTCDate()));
-    const history = await prisma.priceHistory.findUnique({ where: { retailerProductId_day_currency: {
+    const history = await database.priceHistory.findUnique({ where: { retailerProductId_day_currency: {
       retailerProductId: listing.id, day, currency: 'TRY' } } });
-    if (history) await prisma.priceHistory.update({ where: { id: history.id }, data: {
+    if (history) await database.priceHistory.update({ where: { id: history.id }, data: {
       minPriceMinor: Math.min(history.minPriceMinor, offer.currentPriceMinor),
       maxPriceMinor: Math.max(history.maxPriceMinor, offer.currentPriceMinor),
       sumPriceMinor: history.sumPriceMinor + BigInt(offer.currentPriceMinor), observationCount: history.observationCount + 1 } });
-    else await prisma.priceHistory.create({ data: { retailerProductId: listing.id, day, currency: 'TRY',
+    else await database.priceHistory.create({ data: { retailerProductId: listing.id, day, currency: 'TRY',
       minPriceMinor: offer.currentPriceMinor, maxPriceMinor: offer.currentPriceMinor,
       sumPriceMinor: BigInt(offer.currentPriceMinor), observationCount: 1 } });
   }
-  await prisma.brochureOffer.update({ where: { id: offer.id }, data: { retailerProductId: listing.id,
+  await database.brochureOffer.update({ where: { id: offer.id }, data: { retailerProductId: listing.id,
     observationId: observation.id, promotionId, matchConfidence, reviewState: 'APPROVED', reviewReason: null } });
   return { observationId: observation.id, created: created.count === 1 };
 }
@@ -201,24 +201,24 @@ export async function importBrochure(filePath: string, options: BrochureImportOp
   const inputPath = resolve(process.env.INIT_CWD ?? process.cwd(), filePath);
   const document = await loadBrochureDocument(inputPath);
   const fileHash = hash(document.bytes);
-  const existing = await prisma.brochure.findUnique({ where: { fileHash }, select: { id: true } });
+  const existing = await database.brochure.findUnique({ where: { fileHash }, select: { id: true } });
   if (existing) return { brochureId: existing.id, extractionRunId: null, duplicateBrochure: true,
     processed: 0, accepted: 0, reviewRequired: 0, duplicateOffers: 0, failures: 0 };
   const provider = options.provider ?? configuredBrochureExtractionProvider();
   const extracted = await provider.extract(document);
   const retailer = extracted.retailer;
-  const chain = await prisma.storeChain.findFirst({ where: { OR: [
+  const chain = await database.storeChain.findFirst({ where: { OR: [
     { slug: normalizeName(retailer).replace(/\s+/g, '-') }, { name: { equals: retailer, mode: 'insensitive' } },
   ] } });
   if (!chain) throw new Error(`Unknown retailer: ${retailer}`);
-  const brochure = await prisma.brochure.create({ data: { chainId: chain.id, source: options.source ?? 'manual-brochure',
+  const brochure = await database.brochure.create({ data: { chainId: chain.id, source: options.source ?? 'manual-brochure',
     sourceIdentifier: options.sourceIdentifier ?? inputPath, sourceUrl: options.sourceUrl, fileHash,
     sourceAuthorizationStatus: options.sourceAuthorizationStatus ?? 'MANUAL_UPLOAD',
     mediaType: document.mediaType, originalFilename: document.filename, validFrom: isoDate(extracted.validFrom),
-    validTo: isoDate(extracted.validTo), extractionRaw: extracted as unknown as Prisma.InputJsonValue, status: 'IMPORTED' } });
-  const run = await prisma.extractionRun.create({ data: { brochureId: brochure.id, provider: provider.name,
+    validTo: isoDate(extracted.validTo), extractionRaw: extracted as unknown as Database.InputJsonValue, status: 'IMPORTED' } });
+  const run = await database.extractionRun.create({ data: { brochureId: brochure.id, provider: provider.name,
     model: provider.model, configVersion: provider.configVersion, rawInputRef: inputPath,
-    rawOutput: extracted as unknown as Prisma.InputJsonValue } });
+    rawOutput: extracted as unknown as Database.InputJsonValue } });
   const variants = await catalog();
   const now = options.now ?? new Date();
   const counters = { processed: 0, accepted: 0, reviewRequired: 0, duplicateOffers: 0, failures: 0 };
@@ -226,15 +226,15 @@ export async function importBrochure(filePath: string, options: BrochureImportOp
   for (const [index, offer] of extracted.offers.entries()) {
     counters.processed++;
     try {
-      const page = await prisma.brochurePage.upsert({ where: { brochureId_pageNumber: { brochureId: brochure.id,
+      const page = await database.brochurePage.upsert({ where: { brochureId_pageNumber: { brochureId: brochure.id,
         pageNumber: offer.pageNumber } }, update: {}, create: { brochureId: brochure.id, pageNumber: offer.pageNumber,
         contentHash: hash([fileHash, offer.pageNumber]), rawMetadata: { filename: document.filename } } });
       const key = sourceKey(fileHash, offer);
-      if (await prisma.brochureOffer.findUnique({ where: { sourceKey: key } })) { counters.duplicateOffers++; continue; }
+      if (await database.brochureOffer.findUnique({ where: { sourceKey: key } })) { counters.duplicateOffers++; continue; }
       const row = priceRecord(offer, retailer, variants, brochure.importedAt);
       const match = row ? matchCatalogProduct(row, variants) : null;
       const reason = reviewReason(offer, match, true, now);
-      const createdOffer = await prisma.brochureOffer.create({ data: { brochureId: brochure.id, pageId: page.id,
+      const createdOffer = await database.brochureOffer.create({ data: { brochureId: brochure.id, pageId: page.id,
         extractionRunId: run.id, sourceKey: key, sourceLocation: offer.sourceLocation ?? `page ${offer.pageNumber}`,
         productName: offer.productName, brand: offer.brand ?? undefined, ean: offer.ean ?? undefined,
         packageQuantity: offer.packageQuantity ?? undefined, packageUnit: offer.packageUnit ?? undefined,
@@ -242,8 +242,8 @@ export async function importBrochure(filePath: string, options: BrochureImportOp
         regularPriceMinor: amountMinor(offer.regularPrice), promotionText: offer.promotionText ?? undefined,
         loyaltyRequired: offer.loyaltyRequired, multiBuyText: offer.multiBuyText ?? undefined,
         validFrom: isoDate(offer.validFrom ?? extracted.validFrom), validTo: isoDate(offer.validTo ?? extracted.validTo),
-        rawExtraction: offer as unknown as Prisma.InputJsonValue,
-        normalizedOutput: row as unknown as Prisma.InputJsonValue, confidence: offer.confidence,
+        rawExtraction: offer as unknown as Database.InputJsonValue,
+        normalizedOutput: row as unknown as Database.InputJsonValue, confidence: offer.confidence,
         matchConfidence: match?.confidence, retailerProductId: undefined,
         reviewState: reason ? reason === 'EXPIRED_BROCHURE' ? 'REJECTED' : 'NEEDS_REVIEW' : 'AUTO_MATCHED',
         reviewReason: reason } });
@@ -251,16 +251,16 @@ export async function importBrochure(filePath: string, options: BrochureImportOp
         await persistApprovedOffer(createdOffer.id, match.variant, match.confidence);
         counters.accepted++;
       } else {
-        const reviewItem = await prisma.reviewItem.create({ data: { brochureOfferId: createdOffer.id, extractionRunId: run.id,
+        const reviewItem = await database.reviewItem.create({ data: { brochureOfferId: createdOffer.id, extractionRunId: run.id,
           state: reason === 'EXPIRED_BROCHURE' ? 'REJECTED' : 'PENDING',
-          rawValues: offer as unknown as Prisma.InputJsonValue,
-          normalizedValues: row as unknown as Prisma.InputJsonValue,
-          candidateMatches: candidateMatches(offer, variants) as unknown as Prisma.InputJsonValue,
+          rawValues: offer as unknown as Database.InputJsonValue,
+          normalizedValues: row as unknown as Database.InputJsonValue,
+          candidateMatches: candidateMatches(offer, variants) as unknown as Database.InputJsonValue,
           confidence: offer.confidence, reason: reason ?? 'REVIEW_REQUIRED',
           sourceLocation: offer.sourceLocation ?? `page ${offer.pageNumber}`,
           selectedVariantId: match?.variant?.id } });
         if (reason === 'EXPIRED_BROCHURE') counters.failures++; else counters.reviewRequired++;
-        await prisma.reviewEvent.create({ data: { reviewItemId: reviewItem.id,
+        await database.reviewEvent.create({ data: { reviewItemId: reviewItem.id,
         action: reason === 'EXPIRED_BROCHURE' ? 'REJECTED_DURING_IMPORT' : 'REVIEW_REQUIRED',
         toState: reason === 'EXPIRED_BROCHURE' ? 'REJECTED' : 'PENDING',
         note: reason ?? 'Review required', metadata: { sourceLocation: offer.sourceLocation ?? `page ${offer.pageNumber}` } } });
@@ -270,11 +270,11 @@ export async function importBrochure(filePath: string, options: BrochureImportOp
       errors.push({ offer: index + 1, message: reasonFor(error) });
     }
   }
-  await prisma.extractionRun.update({ where: { id: run.id }, data: { processedCount: counters.processed,
+  await database.extractionRun.update({ where: { id: run.id }, data: { processedCount: counters.processed,
     successCount: counters.accepted, reviewCount: counters.reviewRequired, duplicateCount: counters.duplicateOffers,
     failureCount: counters.failures, errors, status: counters.failures === 0 && counters.reviewRequired === 0 ? 'SUCCEEDED' :
       counters.accepted === 0 && counters.reviewRequired === 0 ? 'FAILED' : 'PARTIAL', finishedAt: new Date() } });
-  await prisma.brochure.update({ where: { id: brochure.id }, data: { status: counters.reviewRequired > 0 ? 'REVIEW_REQUIRED' :
+  await database.brochure.update({ where: { id: brochure.id }, data: { status: counters.reviewRequired > 0 ? 'REVIEW_REQUIRED' :
     counters.failures > 0 && counters.accepted === 0 ? 'FAILED' : 'PROCESSED',
     reviewState: counters.reviewRequired > 0 ? 'NEEDS_REVIEW' : 'AUTO_MATCHED' } });
   await ensureBrochurePagePreviews(brochure.id);
@@ -282,25 +282,25 @@ export async function importBrochure(filePath: string, options: BrochureImportOp
 }
 
 export async function listPendingBrochureReviews() {
-  return prisma.reviewItem.findMany({ where: { state: 'PENDING' }, include: { brochureOffer: { include: { brochure: { include: { chain: true } } } } },
+  return database.reviewItem.findMany({ where: { state: 'PENDING' }, include: { brochureOffer: { include: { brochure: { include: { chain: true } } } } },
     orderBy: { createdAt: 'asc' } });
 }
 
 export async function approveBrochureReview(reviewItemId: string, variantId?: string) {
-  const review = await prisma.reviewItem.findUniqueOrThrow({ where: { id: reviewItemId }, include: { brochureOffer: true } });
+  const review = await database.reviewItem.findUniqueOrThrow({ where: { id: reviewItemId }, include: { brochureOffer: true } });
   const selectedVariantId = variantId ?? review.selectedVariantId;
   if (!selectedVariantId) throw new Error('A canonical product variant is required to approve this review item');
   const variants = await catalog();
   const variant = variants.find(item => item.id === selectedVariantId);
   if (!variant) throw new Error(`Unknown canonical product variant: ${selectedVariantId}`);
   const result = await persistApprovedOffer(review.brochureOfferId, variant, review.confidence ?? 0.86);
-  await prisma.reviewItem.update({ where: { id: reviewItemId }, data: { state: variantId ? 'MATCHED' : 'APPROVED',
+  await database.reviewItem.update({ where: { id: reviewItemId }, data: { state: variantId ? 'MATCHED' : 'APPROVED',
     selectedVariantId, resolvedAt: new Date() } });
   return result;
 }
 
 export async function rejectBrochureReview(reviewItemId: string) {
-  const review = await prisma.reviewItem.update({ where: { id: reviewItemId }, data: { state: 'REJECTED', resolvedAt: new Date() } });
-  await prisma.brochureOffer.update({ where: { id: review.brochureOfferId }, data: { reviewState: 'REJECTED' } });
+  const review = await database.reviewItem.update({ where: { id: reviewItemId }, data: { state: 'REJECTED', resolvedAt: new Date() } });
+  await database.brochureOffer.update({ where: { id: review.brochureOfferId }, data: { reviewState: 'REJECTED' } });
   return review;
 }

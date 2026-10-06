@@ -1,5 +1,5 @@
 import { Worker } from 'bullmq';
-import { prisma } from '@market/database';
+import { database } from '@market/database';
 import { loadConfig } from '@market/config';
 import { evaluateActiveNeeds, evaluateAllActiveNeeds } from '@market/evaluation';
 import { IngestionSkippedError, runRegisteredSource, upsertOperationalAlert } from '@market/ingestion';
@@ -69,7 +69,7 @@ ingestionWorker.on('failed', (job, error) => {
   void (async () => {
     const candidateSourceId = typeof job?.data?.sourceId === 'string' ? job.data.sourceId : undefined;
     const source = candidateSourceId
-      ? await prisma.dataSource.findUnique({ where: { id: candidateSourceId }, select: { id: true } })
+      ? await database.dataSource.findUnique({ where: { id: candidateSourceId }, select: { id: true } })
       : null;
     await upsertOperationalAlert({ sourceId: source?.id, key: `job:${job?.id ?? 'unknown'}:failed`,
       kind: 'FAILED_RECURRING_JOB', title: 'Ingestion job failed',
@@ -82,7 +82,7 @@ ingestionWorker.on('failed', (job, error) => {
 ingestionWorker.on('error', error => console.error(JSON.stringify({ event: 'ingestion_worker_error', error: error.message })));
 
 async function reconcileIngestionSchedules() {
-  const sources = await prisma.dataSource.findMany();
+  const sources = await database.dataSource.findMany();
   const desiredSchedulerIds = new Set(sources.map(source => `source:${source.id}`));
   const existingSourceIds = new Set(sources.map(source => source.id));
   const schedulers = await ingestionQueue.getJobSchedulers();
@@ -131,7 +131,7 @@ console.log(JSON.stringify({ event: 'worker_ready', queue: queueName, pushQueue:
 async function shutdown() {
   clearInterval(scheduleTimer);
   await worker.close(); await ingestionWorker.close(); await pushWorker.close();
-  await queue.close(); await ingestionQueue.close(); await pushQueue.close(); await prisma.$disconnect();
+  await queue.close(); await ingestionQueue.close(); await pushQueue.close(); await database.$disconnect();
 }
 process.once('SIGINT', () => { void shutdown().then(() => process.exit(0)); });
 process.once('SIGTERM', () => { void shutdown().then(() => process.exit(0)); });

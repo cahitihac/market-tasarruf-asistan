@@ -1,4 +1,4 @@
-import { Prisma, prisma } from '@market/database';
+import { Database, database } from '@market/database';
 import { fileConnector, type PriceSourceConnector } from './connector.js';
 import { ingestPrices, type IngestRunOptions } from './ingest.js';
 import { resolveOperationalAlert, upsertOperationalAlert } from './operational-alerts.js';
@@ -6,7 +6,7 @@ import { createOpenPricesConnector } from './open-prices.js';
 import { priceMinor, priceRecordSchema } from './record.js';
 
 type Trigger = 'SCHEDULED' | 'MANUAL' | 'DEVELOPMENT';
-type DataSourceRecord = NonNullable<Awaited<ReturnType<typeof prisma.dataSource.findUnique>>>;
+type DataSourceRecord = NonNullable<Awaited<ReturnType<typeof database.dataSource.findUnique>>>;
 
 export class IngestionSkippedError extends Error {
   constructor(readonly code: 'SOURCE_NOT_AUTHORIZED' | 'SOURCE_DISABLED' | 'SOURCE_RUNNING' | 'SOURCE_RATE_LIMITED',
@@ -16,7 +16,7 @@ export class IngestionSkippedError extends Error {
   }
 }
 
-function jsonObject(value: Prisma.JsonValue): Record<string, unknown> {
+function jsonObject(value: Database.JsonValue): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
@@ -56,7 +56,7 @@ async function anomalyMessage(raw: unknown): Promise<string | null> {
   const currentMinor = priceMinor(parsed.data.currentPrice);
   if (currentMinor <= 0 || currentMinor > 5_000_000) return 'Extreme price value requires review';
   if (!parsed.data.ean) return null;
-  const latest = await prisma.priceObservation.findFirst({ where: {
+  const latest = await database.priceObservation.findFirst({ where: {
     retailerProduct: { ean: parsed.data.ean, chain: { OR: [
       { slug: { equals: parsed.data.retailer, mode: 'insensitive' } },
       { name: { equals: parsed.data.retailer, mode: 'insensitive' } },
@@ -86,7 +86,7 @@ async function markSourceComplete(source: DataSourceRecord, run: Awaited<ReturnT
   const success = run.status === 'SUCCEEDED' || run.status === 'PARTIAL';
   const previousRecordCount = source.lastRecordCount;
   const status = success ? 'IDLE' : 'FAILING';
-  await prisma.dataSource.update({ where: { id: source.id }, data: {
+  await database.dataSource.update({ where: { id: source.id }, data: {
     operationalStatus: status, lastRunStatus: run.status, lastRunId: run.id,
     lastSuccessfulRunAt: success ? run.finishedAt ?? new Date() : source.lastSuccessfulRunAt,
     lastRecordCount: run.rowCount, lastFailureMessage: success ? null :
@@ -107,36 +107,36 @@ async function markSourceComplete(source: DataSourceRecord, run: Awaited<ReturnT
 }
 
 export async function affectedNeedIdsForRun(runId: string): Promise<string[]> {
-  const run = await prisma.ingestionRun.findUnique({ where: { id: runId }, include: { dataSource: true } });
+  const run = await database.ingestionRun.findUnique({ where: { id: runId }, include: { dataSource: true } });
   const freshnessHours = run?.dataSource?.freshnessHours ?? 72;
   const cutoff = new Date(Date.now() - freshnessHours * 60 * 60 * 1000);
-  const observations = await prisma.priceObservation.findMany({ where: { ingestionRunId: runId,
+  const observations = await database.priceObservation.findMany({ where: { ingestionRunId: runId,
     observedAt: { gte: cutoff }, OR: [{ promotionId: null }, { promotion: { endsAt: { gte: new Date() } } }] },
     select: { retailerProduct: { select: { variant: { select: { product: { select: { categoryId: true } } } } } } } });
   const categoryIds = [...new Set(observations.map(item => item.retailerProduct.variant?.product.categoryId).filter((value): value is string => Boolean(value)))];
   if (!categoryIds.length) return [];
-  const needs = await prisma.userNeed.findMany({ where: { active: true, categoryId: { in: categoryIds } },
+  const needs = await database.userNeed.findMany({ where: { active: true, categoryId: { in: categoryIds } },
     select: { id: true } });
   return needs.map(need => need.id);
 }
 
 export async function refreshSourceHealth(sourceId: string) {
-  const source = await prisma.dataSource.findUniqueOrThrow({ where: { id: sourceId } });
-  if (!source.enabled) return prisma.dataSource.update({ where: { id: sourceId },
+  const source = await database.dataSource.findUniqueOrThrow({ where: { id: sourceId } });
+  if (!source.enabled) return database.dataSource.update({ where: { id: sourceId },
     data: { operationalStatus: source.operationalStatus === 'PAUSED' ? 'PAUSED' : 'DISABLED' } });
   const staleAfter = new Date(Date.now() - source.freshnessHours * 60 * 60 * 1000);
   if (!source.lastSuccessfulRunAt || source.lastSuccessfulRunAt < staleAfter) {
     await upsertOperationalAlert({ sourceId, key: `source:${source.id}:stale`,
       kind: 'STALE_SOURCE', title: `${source.name} is stale`,
       message: `No successful run within ${source.freshnessHours} hours.`, severity: 'WARNING' });
-    return prisma.dataSource.update({ where: { id: sourceId }, data: { operationalStatus: 'STALE' } });
+    return database.dataSource.update({ where: { id: sourceId }, data: { operationalStatus: 'STALE' } });
   }
   await resolveOperationalAlert(`source:${source.id}:stale`);
-  return prisma.dataSource.update({ where: { id: sourceId }, data: { operationalStatus: 'IDLE' } });
+  return database.dataSource.update({ where: { id: sourceId }, data: { operationalStatus: 'IDLE' } });
 }
 
 export async function runRegisteredSource(sourceIdOrSlug: string, input: IngestRunOptions & { trigger?: Trigger } = {}) {
-  const source = await prisma.dataSource.findFirst({ where: { OR: [{ id: sourceIdOrSlug }, { slug: sourceIdOrSlug }] } });
+  const source = await database.dataSource.findFirst({ where: { OR: [{ id: sourceIdOrSlug }, { slug: sourceIdOrSlug }] } });
   if (!source) throw new Error(`Data source not found: ${sourceIdOrSlug}`);
   const trigger = (input.trigger as Trigger | undefined) ?? 'MANUAL';
   if (!source.enabled) throw new IngestionSkippedError('SOURCE_DISABLED', `${source.name} is disabled`);
@@ -148,7 +148,7 @@ export async function runRegisteredSource(sourceIdOrSlug: string, input: IngestR
     throw new IngestionSkippedError('SOURCE_RATE_LIMITED', `${source.name} is rate limited`);
   }
   const staleRunningBefore = new Date(now.getTime() - Math.max(source.timeoutMs * 2, 60_000));
-  const claimed = await prisma.dataSource.updateMany({ where: { id: source.id, OR: [
+  const claimed = await database.dataSource.updateMany({ where: { id: source.id, OR: [
     { operationalStatus: { not: 'RUNNING' } }, { lastRunAt: { lt: staleRunningBefore } }, { lastRunAt: null },
   ] }, data: { operationalStatus: 'RUNNING', lastRunAt: now, lastFailureMessage: null } });
   if (!claimed.count) {
@@ -168,7 +168,7 @@ export async function runRegisteredSource(sourceIdOrSlug: string, input: IngestR
     return { run, affectedNeedIds: await affectedNeedIdsForRun(run.id) };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await prisma.dataSource.update({ where: { id: source.id }, data: {
+    await database.dataSource.update({ where: { id: source.id }, data: {
       operationalStatus: 'FAILING', lastRunStatus: 'FAILED', lastFailureMessage: message,
     } });
     await upsertOperationalAlert({ sourceId: source.id, key: `source:${source.id}:failed-runs`,
@@ -179,14 +179,14 @@ export async function runRegisteredSource(sourceIdOrSlug: string, input: IngestR
 }
 
 export async function inspectSourceFreshness(sourceId: string) {
-  const source = await prisma.dataSource.findUniqueOrThrow({ where: { id: sourceId } });
+  const source = await database.dataSource.findUniqueOrThrow({ where: { id: sourceId } });
   const cutoff = new Date(Date.now() - source.freshnessHours * 60 * 60 * 1000);
   const [freshObservations, staleObservations, expiredPromotions, unmatchedRows] = await Promise.all([
-    prisma.priceObservation.count({ where: { ingestionRun: { dataSourceId: sourceId }, observedAt: { gte: cutoff } } }),
-    prisma.priceObservation.count({ where: { ingestionRun: { dataSourceId: sourceId }, observedAt: { lt: cutoff } } }),
-    prisma.priceObservation.count({ where: { ingestionRun: { dataSourceId: sourceId },
+    database.priceObservation.count({ where: { ingestionRun: { dataSourceId: sourceId }, observedAt: { gte: cutoff } } }),
+    database.priceObservation.count({ where: { ingestionRun: { dataSourceId: sourceId }, observedAt: { lt: cutoff } } }),
+    database.priceObservation.count({ where: { ingestionRun: { dataSourceId: sourceId },
       promotion: { endsAt: { lt: new Date() } } } }),
-    prisma.ingestionRow.count({ where: { run: { dataSourceId: sourceId }, status: { in: ['UNMATCHED', 'FAILED'] } } }),
+    database.ingestionRow.count({ where: { run: { dataSourceId: sourceId }, status: { in: ['UNMATCHED', 'FAILED'] } } }),
   ]);
   return { freshObservations, staleObservations, expiredPromotions, unmatchedRows, freshnessCutoff: cutoff };
 }

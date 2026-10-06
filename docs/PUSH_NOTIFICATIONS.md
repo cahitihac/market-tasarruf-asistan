@@ -84,7 +84,7 @@ Push provider code is behind `PushProvider`:
 
 `ExpoPushProvider` calls the Expo Push Service HTTPS endpoints directly. `MockPushProvider` supports test inspection of attempted messages and can simulate success, temporary provider failure, and invalid tokens.
 
-Set `EXPO_PUSH_ACCESS_TOKEN` if Expo push security is enabled for the project. Without push security, Expo currently accepts server requests without that header.
+Set `EXPO_PUSH_ACCESS_TOKEN` for local development if Expo push security is enabled for the project. In AWS, store it as the Standard-tier SSM SecureString `/market-assistant/<stage>/expo-push-access-token`; the public-push Lambda loads it at runtime from the name in `EXPO_PUSH_ACCESS_TOKEN_PARAMETER`. Without push security, Expo currently accepts server requests without that header.
 
 ## Retries And Invalid Tokens
 
@@ -108,11 +108,11 @@ For native push testing, configure `EXPO_PUBLIC_EAS_PROJECT_ID` when needed by t
 
 ## Local Testing
 
-Local validation expects PostgreSQL and Redis:
+Local validation expects DynamoDB Local and Redis:
 
 ```sh
 docker compose -f infra/docker-compose.yml up -d
-corepack pnpm --filter @market/database db:migrate
+corepack pnpm --filter @market/database db:setup
 corepack pnpm --filter @market/database db:seed
 corepack pnpm --filter @market/database db:verify
 corepack pnpm --filter @market/api test
@@ -128,6 +128,6 @@ Before production rollout:
 
 - create native builds with push notification credentials
 - configure Expo project id for mobile builds
-- decide whether to enable Expo push security and set `EXPO_PUSH_ACCESS_TOKEN`
+- decide whether to enable Expo push security and configure the local environment or stage-specific SSM SecureString
 - monitor push delivery logs by notification id, delivery id, provider, attempt, status, provider ticket id, and failure class
 - add receipt polling if production needs confirmed APNs/FCM handoff status

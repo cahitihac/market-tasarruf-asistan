@@ -4,7 +4,7 @@ The Expo Router application lives in `apps/mobile`. It uses TanStack Query for r
 
 ## Run locally
 
-Start PostgreSQL and Redis, then the API and worker as described in the root README. In another terminal:
+Start DynamoDB Local and Redis, then the API and worker as described in the root README. In another terminal:
 
 ```sh
 cp apps/mobile/.env.example apps/mobile/.env

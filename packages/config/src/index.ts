@@ -3,8 +3,11 @@ import { z } from 'zod';
 
 loadDotEnv({ path: new URL('../../../.env', import.meta.url).pathname });
 
+const optionalUrl = z.preprocess(value => value === '' ? undefined : value, z.string().url().optional());
+
 const envSchema = z.object({
-  DATABASE_URL: z.string().url(),
+  DYNAMODB_TABLE: z.preprocess(value => value === '' ? undefined : value, z.string().min(1).default('market-assistant-local')),
+  DYNAMODB_ENDPOINT: optionalUrl,
   REDIS_URL: z.string().url().default('redis://localhost:6379'),
   HOST: z.string().default('127.0.0.1'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3001),
@@ -14,6 +17,11 @@ const envSchema = z.object({
   PRICE_FRESHNESS_HOURS: z.coerce.number().positive().default(72),
   INGESTION_DEMO_SCHEDULE_MS: z.coerce.number().int().positive().default(60_000),
   INGESTION_WORKER_CONCURRENCY: z.coerce.number().int().positive().default(2),
+  JOB_BACKEND: z.enum(['bullmq', 'sqs']).default('bullmq'),
+  EVALUATION_QUEUE_URL: optionalUrl,
+  INGESTION_QUEUE_URL: optionalUrl,
+  PUSH_QUEUE_URL: optionalUrl,
+  PUSH_STATUS_QUEUE_URL: optionalUrl,
   OPS_ALERT_PROVIDER: z.enum(['none', 'mock', 'webhook']).default('none'),
   OPS_ALERT_WEBHOOK_URL: z.string().url().optional(),
   OPS_ALERT_MIN_INTERVAL_MINUTES: z.coerce.number().int().positive().default(60),

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { prisma } from '@market/database';
+import { database } from '@market/database';
 import { ensureBrochurePagePreviews, importBrochure } from '@market/ingestion';
 import { buildApp } from './app.js';
 import { passwordHash } from './admin-auth.js';
@@ -9,45 +9,45 @@ import { sourceIngestionQueue } from './ops-queue.js';
 const fixturePath = new URL('../../../fixtures/carrefour-example.pdf', import.meta.url).pathname;
 
 async function cleanup() {
-  const brochures = await prisma.brochure.findMany({ where: { originalFilename: 'carrefour-example.pdf' }, select: { id: true } });
+  const brochures = await database.brochure.findMany({ where: { originalFilename: 'carrefour-example.pdf' }, select: { id: true } });
   const brochureIds = brochures.map(item => item.id);
-  const offers = await prisma.brochureOffer.findMany({ where: { brochureId: { in: brochureIds } },
+  const offers = await database.brochureOffer.findMany({ where: { brochureId: { in: brochureIds } },
     select: { id: true, observationId: true, promotionId: true } });
   const offerIds = offers.map(item => item.id);
   const observationIds = offers.map(item => item.observationId).filter((value): value is string => Boolean(value));
   const promotionIds = offers.map(item => item.promotionId).filter((value): value is string => Boolean(value));
-  const reviewItems = await prisma.reviewItem.findMany({ where: { brochureOfferId: { in: offerIds } }, select: { id: true } });
+  const reviewItems = await database.reviewItem.findMany({ where: { brochureOfferId: { in: offerIds } }, select: { id: true } });
   const reviewItemIds = reviewItems.map(item => item.id);
-  await prisma.reviewEvent.deleteMany({ where: { reviewItemId: { in: reviewItemIds } } });
-  await prisma.adminAuditLog.deleteMany({ where: { OR: [
+  await database.reviewEvent.deleteMany({ where: { reviewItemId: { in: reviewItemIds } } });
+  await database.adminAuditLog.deleteMany({ where: { OR: [
     { entityId: { in: brochureIds } }, { entityId: { in: offerIds } },
     { entityId: { in: reviewItemIds } }, { entityId: { in: observationIds } },
   ] } });
-  await prisma.notification.deleteMany({ where: { alert: { deal: { observationId: { in: observationIds } } } } });
-  await prisma.alert.deleteMany({ where: { deal: { observationId: { in: observationIds } } } });
-  await prisma.recommendation.deleteMany({ where: { deal: { observationId: { in: observationIds } } } });
-  await prisma.deal.deleteMany({ where: { observationId: { in: observationIds } } });
-  await prisma.priceObservation.deleteMany({ where: { id: { in: observationIds } } });
-  await prisma.promotionCondition.deleteMany({ where: { promotionId: { in: promotionIds } } });
-  await prisma.promotion.deleteMany({ where: { id: { in: promotionIds } } });
-  await prisma.reviewItem.deleteMany({ where: { brochureOfferId: { in: offerIds } } });
-  await prisma.brochureOffer.deleteMany({ where: { id: { in: offerIds } } });
-  await prisma.extractionRun.deleteMany({ where: { brochureId: { in: brochureIds } } });
-  await prisma.brochurePage.deleteMany({ where: { brochureId: { in: brochureIds } } });
-  await prisma.brochure.deleteMany({ where: { id: { in: brochureIds } } });
-  await prisma.priceHistory.deleteMany({ where: { retailerProduct: { externalId: { startsWith: 'brochure:normalized:' } } } });
-  await prisma.retailerProduct.deleteMany({ where: { externalId: { startsWith: 'brochure:normalized:' } } });
+  await database.notification.deleteMany({ where: { alert: { deal: { observationId: { in: observationIds } } } } });
+  await database.alert.deleteMany({ where: { deal: { observationId: { in: observationIds } } } });
+  await database.recommendation.deleteMany({ where: { deal: { observationId: { in: observationIds } } } });
+  await database.deal.deleteMany({ where: { observationId: { in: observationIds } } });
+  await database.priceObservation.deleteMany({ where: { id: { in: observationIds } } });
+  await database.promotionCondition.deleteMany({ where: { promotionId: { in: promotionIds } } });
+  await database.promotion.deleteMany({ where: { id: { in: promotionIds } } });
+  await database.reviewItem.deleteMany({ where: { brochureOfferId: { in: offerIds } } });
+  await database.brochureOffer.deleteMany({ where: { id: { in: offerIds } } });
+  await database.extractionRun.deleteMany({ where: { brochureId: { in: brochureIds } } });
+  await database.brochurePage.deleteMany({ where: { brochureId: { in: brochureIds } } });
+  await database.brochure.deleteMany({ where: { id: { in: brochureIds } } });
+  await database.priceHistory.deleteMany({ where: { retailerProduct: { externalId: { startsWith: 'brochure:normalized:' } } } });
+  await database.retailerProduct.deleteMany({ where: { externalId: { startsWith: 'brochure:normalized:' } } });
 }
 
 async function ensureAdminUsers() {
   await Promise.all([
-    prisma.adminUser.upsert({ where: { email: 'viewer@market.local' }, update: { role: 'VIEWER', active: true,
+    database.adminUser.upsert({ where: { email: 'viewer@market.local' }, update: { role: 'VIEWER', active: true,
       passwordHash: passwordHash('viewer-demo') }, create: { email: 'viewer@market.local', displayName: 'Viewer Demo',
       role: 'VIEWER', passwordHash: passwordHash('viewer-demo') } }),
-    prisma.adminUser.upsert({ where: { email: 'reviewer@market.local' }, update: { role: 'REVIEWER', active: true,
+    database.adminUser.upsert({ where: { email: 'reviewer@market.local' }, update: { role: 'REVIEWER', active: true,
       passwordHash: passwordHash('reviewer-demo') }, create: { email: 'reviewer@market.local', displayName: 'Reviewer Demo',
       role: 'REVIEWER', passwordHash: passwordHash('reviewer-demo') } }),
-    prisma.adminUser.upsert({ where: { email: 'admin@market.local' }, update: { role: 'ADMIN', active: true,
+    database.adminUser.upsert({ where: { email: 'admin@market.local' }, update: { role: 'ADMIN', active: true,
       passwordHash: passwordHash('admin-demo') }, create: { email: 'admin@market.local', displayName: 'Admin Demo',
       role: 'ADMIN', passwordHash: passwordHash('admin-demo') } }),
   ]);
@@ -80,15 +80,15 @@ describe.sequential('admin dashboard API', () => {
     await cleanup();
     await ensureAdminUsers();
     const result = await importBrochure(fixturePath, { sourceAuthorizationStatus: 'UNVERIFIED',
-      sourceIdentifier: 'admin-api-fixture' });
+      sourceIdentifier: 'admin-api-fixture', now: new Date('2026-09-25T12:00:00.000Z') });
     brochureId = result.brochureId;
     extractionRunId = result.extractionRunId!;
-    const komiliVariant = await prisma.productVariant.findFirstOrThrow({ where: {
+    const komiliVariant = await database.productVariant.findFirstOrThrow({ where: {
       product: { name: 'Komili Extra Virgin Olive Oil 1 L' },
     } });
     komiliVariantId = komiliVariant.id;
     komiliProductId = komiliVariant.productId;
-    const dataSource = await prisma.dataSource.upsert({ where: { slug: 'admin-api-fixture-source' },
+    const dataSource = await database.dataSource.upsert({ where: { slug: 'admin-api-fixture-source' },
       update: { authorizationStatus: 'AUTHORIZED', enabled: true, operationalStatus: 'IDLE' },
       create: { slug: 'admin-api-fixture-source', name: 'Admin API fixture source',
         owner: 'integration test', connectorType: 'JSON', authorizationStatus: 'AUTHORIZED',
@@ -104,7 +104,7 @@ describe.sequential('admin dashboard API', () => {
 
   afterAll(async () => {
     await cleanup();
-    await prisma.adminSession.deleteMany({ where: { user: { email: { in: [
+    await database.adminSession.deleteMany({ where: { user: { email: { in: [
       'viewer@market.local', 'reviewer@market.local', 'admin@market.local',
     ] } } } });
     if (dataSourceJobId) {
@@ -112,10 +112,10 @@ describe.sequential('admin dashboard API', () => {
       await queue.getJob(dataSourceJobId).then(job => job?.remove()).catch(() => undefined);
       await queue.close();
     }
-    await prisma.adminAuditLog.deleteMany({ where: { entityType: 'DataSource', entityId: dataSourceId } });
-    await prisma.operationalAlert.deleteMany({ where: { dataSourceId } });
-    await prisma.dataSourceApprovalEvent.deleteMany({ where: { dataSourceId } });
-    await prisma.dataSource.deleteMany({ where: { id: dataSourceId } });
+    await database.adminAuditLog.deleteMany({ where: { entityType: 'DataSource', entityId: dataSourceId } });
+    await database.operationalAlert.deleteMany({ where: { dataSourceId } });
+    await database.dataSourceApprovalEvent.deleteMany({ where: { dataSourceId } });
+    await database.dataSource.deleteMany({ where: { id: dataSourceId } });
     await app.close();
   });
 
@@ -158,9 +158,9 @@ describe.sequential('admin dashboard API', () => {
   });
 
   it('generates durable page previews for brochure review', async () => {
-    const brochure = await prisma.brochure.findUniqueOrThrow({ where: { id: brochureId }, include: { pages: true } });
-    expect(brochure.pages.every(page => page.imageRef?.startsWith('data:image/svg+xml'))).toBe(true);
-    expect(brochure.pages.every(page => page.previewGeneratedAt)).toBe(true);
+    const brochure = await database.brochure.findUniqueOrThrow({ where: { id: brochureId }, include: { pages: true } });
+    expect(brochure.pages.every((page: { imageRef?: string }) => page.imageRef?.startsWith('data:image/svg+xml'))).toBe(true);
+    expect(brochure.pages.every((page: { previewGeneratedAt?: Date }) => page.previewGeneratedAt)).toBe(true);
     const secondPass = await ensureBrochurePagePreviews(brochureId);
     expect(secondPass.created).toBe(0);
     expect(secondPass.skipped).toBeGreaterThan(0);
@@ -175,17 +175,17 @@ describe.sequential('admin dashboard API', () => {
       headers: auth(reviewerToken), payload: { variantId: komiliVariantId } });
     expect(matched.statusCode).toBe(200);
     createdObservationId = matched.json().result.observationId;
-    expect(await prisma.priceObservation.count({ where: { id: createdObservationId } })).toBe(1);
+    expect(await database.priceObservation.count({ where: { id: createdObservationId } })).toBe(1);
 
     const rejected = await app.inject({ method: 'POST', url: '/admin/reviews/batch', headers: auth(reviewerToken),
       payload: { action: 'REJECT', reviewItemIds: [rejectReviewId], reason: 'missing price in source preview', confirm: true } });
     expect(rejected.statusCode).toBe(200);
     expect(rejected.json().summary[0].status).toBe('REJECTED');
-    const states = await prisma.reviewItem.findMany({ where: { id: { in: [manualReviewId, rejectReviewId] } },
+    const states = await database.reviewItem.findMany({ where: { id: { in: [manualReviewId, rejectReviewId] } },
       orderBy: { id: 'asc' } });
     expect(states.map(item => item.state).sort()).toEqual(['MATCHED', 'REJECTED']);
-    expect(await prisma.reviewEvent.count({ where: { reviewItemId: { in: [manualReviewId, rejectReviewId] } } })).toBeGreaterThanOrEqual(4);
-    expect(await prisma.adminAuditLog.count({ where: { entityId: { in: [manualReviewId, rejectReviewId] } } })).toBeGreaterThanOrEqual(2);
+    expect(await database.reviewEvent.count({ where: { reviewItemId: { in: [manualReviewId, rejectReviewId] } } })).toBeGreaterThanOrEqual(4);
+    expect(await database.adminAuditLog.count({ where: { entityId: { in: [manualReviewId, rejectReviewId] } } })).toBeGreaterThanOrEqual(2);
   });
 
   it('returns price provenance back to brochure page and extraction run', async () => {
@@ -206,7 +206,7 @@ describe.sequential('admin dashboard API', () => {
         reason: 'approved for internal proof of concept' } });
     expect(response.statusCode).toBe(200);
     expect(response.json().brochure.sourceAuthorizationStatus).toBe('AUTHORIZED');
-    const log = await prisma.adminAuditLog.findFirst({ where: { action: 'SOURCE_AUTHORIZATION_CHANGED',
+    const log = await database.adminAuditLog.findFirst({ where: { action: 'SOURCE_AUTHORIZATION_CHANGED',
       entityId: brochureId } });
     expect(log?.reason).toBe('approved for internal proof of concept');
   });
@@ -243,7 +243,7 @@ describe.sequential('admin dashboard API', () => {
         reason: 'ready for fixture test' } });
     expect(updated.statusCode).toBe(200);
     expect(updated.json().dataSource.ownerContact).toBe('ops@example.test');
-    expect(await prisma.dataSourceApprovalEvent.count({ where: { dataSourceId,
+    expect(await database.dataSourceApprovalEvent.count({ where: { dataSourceId,
       toStatus: 'READY_FOR_TEST' } })).toBe(1);
 
     const queued = await app.inject({ method: 'POST', url: `/admin/data-sources/${dataSourceId}/run`,
@@ -251,7 +251,7 @@ describe.sequential('admin dashboard API', () => {
     expect(queued.statusCode).toBe(200);
     dataSourceJobId = queued.json().jobId;
     expect(dataSourceJobId).toBeTruthy();
-    expect(await prisma.adminAuditLog.count({ where: { entityType: 'DataSource',
+    expect(await database.adminAuditLog.count({ where: { entityType: 'DataSource',
       entityId: dataSourceId } })).toBeGreaterThanOrEqual(3);
   });
 
@@ -260,8 +260,8 @@ describe.sequential('admin dashboard API', () => {
       headers: auth(adminToken), payload: { confirmation: 'delete product', reason: 'operator clicked delete during safety test' } });
     expect(response.statusCode).toBe(409);
     expect(response.json().error).toBe('DESTRUCTIVE_ACTION_BLOCKED');
-    expect(await prisma.product.count({ where: { id: komiliProductId } })).toBe(1);
-    expect(await prisma.adminAuditLog.count({ where: { action: 'DESTRUCTIVE_ACTION_BLOCKED',
+    expect(await database.product.count({ where: { id: komiliProductId } })).toBe(1);
+    expect(await database.adminAuditLog.count({ where: { action: 'DESTRUCTIVE_ACTION_BLOCKED',
       entityId: komiliProductId } })).toBeGreaterThanOrEqual(1);
 
     const auditLogs = await app.inject({ url: `/admin/audit-logs?entityId=${komiliProductId}`, headers: auth(adminToken) });

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { prisma } from '@market/database';
+import { database } from '@market/database';
 import { buildApp } from './app.js';
 
 describe('push devices and notification preferences', () => {
@@ -10,12 +10,12 @@ describe('push devices and notification preferences', () => {
 
   beforeAll(async () => { app = await buildApp(); });
   afterAll(async () => {
-    await prisma.notificationDelivery.deleteMany({ where: { pushDevice: { userId: { in: userIds } } } });
-    await prisma.pushDevice.deleteMany({ where: { userId: { in: userIds } } });
-    await prisma.notificationPreference.deleteMany({ where: { userId: { in: userIds } } });
-    await prisma.consumerAccountToken.deleteMany({ where: { userId: { in: userIds } } });
-    await prisma.consumerSession.deleteMany({ where: { userId: { in: userIds } } });
-    await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+    await database.notificationDelivery.deleteMany({ where: { pushDevice: { userId: { in: userIds } } } });
+    await database.pushDevice.deleteMany({ where: { userId: { in: userIds } } });
+    await database.notificationPreference.deleteMany({ where: { userId: { in: userIds } } });
+    await database.consumerAccountToken.deleteMany({ where: { userId: { in: userIds } } });
+    await database.consumerSession.deleteMany({ where: { userId: { in: userIds } } });
+    await database.user.deleteMany({ where: { id: { in: userIds } } });
     await app.close();
   });
 
@@ -91,7 +91,7 @@ describe('push devices and notification preferences', () => {
       payload: { expoPushToken: 'ExpoPushToken[tokenLogoutDDDDDDDD]', platform: 'IOS' } });
     expect(logoutDevice.statusCode).toBe(201);
     expect((await app.inject({ method: 'POST', url: '/auth/logout', headers: auth(logoutAccount.token) })).statusCode).toBe(204);
-    expect((await prisma.pushDevice.findUniqueOrThrow({ where: { id: logoutDevice.json().id } })).disabledAt).toBeTruthy();
+    expect((await database.pushDevice.findUniqueOrThrow({ where: { id: logoutDevice.json().id } })).disabledAt).toBeTruthy();
 
     const deleteAccount = await register(`push-delete-${Date.now()}@example.test`, 'delete-push-password');
     const deleteDevice = await app.inject({ method: 'POST', url: '/push/devices', headers: auth(deleteAccount.token),
@@ -100,6 +100,6 @@ describe('push devices and notification preferences', () => {
     const deleted = await app.inject({ method: 'DELETE', url: '/account', headers: auth(deleteAccount.token),
       payload: { currentPassword: 'delete-push-password', confirmation: 'DELETE MY ACCOUNT' } });
     expect(deleted.statusCode).toBe(204);
-    expect((await prisma.pushDevice.findUniqueOrThrow({ where: { id: deleteDevice.json().id } })).disabledAt).toBeTruthy();
+    expect((await database.pushDevice.findUniqueOrThrow({ where: { id: deleteDevice.json().id } })).disabledAt).toBeTruthy();
   });
 });

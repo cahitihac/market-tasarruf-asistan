@@ -3,7 +3,6 @@ import { buildApp } from './app.js';
 
 describe('health API', () => {
   it('responds without a database connection', async () => {
-    process.env.DATABASE_URL ??= 'postgresql://market:market_dev@localhost:5432/market';
     const app = await buildApp();
     try {
       const response = await app.inject('/health');

@@ -1,5 +1,5 @@
 import { QueueEvents } from 'bullmq';
-import { prisma } from '@market/database';
+import { database } from '@market/database';
 import { evaluationQueue, jobName, queueName, redisConnection } from './queue.js';
 
 const queue = evaluationQueue();
@@ -11,5 +11,5 @@ try {
   const result = await job.waitUntilFinished(events, 120_000);
   console.log(JSON.stringify({ event: 'manual_job_completed', jobId: job.id, result }));
 } finally {
-  await events.close(); await queue.close(); await prisma.$disconnect();
+  await events.close(); await queue.close(); await database.$disconnect();
 }

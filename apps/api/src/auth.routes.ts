@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { Prisma } from '@market/database';
+import { Database } from '@market/database';
 import { z } from 'zod';
 import {
   authenticateConsumer, changeConsumerPassword, consumerSessions, deleteConsumerAccount, registerConsumer, requireConsumer,
@@ -46,7 +46,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       const result = await registerConsumer(parsed.data, request);
       return reply.code(201).send(authResponse(result));
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      if (error instanceof Database.RequestError && error.code === 'P2002') {
         return reply.code(409).send({ error: 'EMAIL_ALREADY_REGISTERED', message: 'Bu e-posta adresi zaten kayıtlı.' });
       }
       throw error;

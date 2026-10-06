@@ -1,4 +1,4 @@
-import { prisma } from '@market/database';
+import { database } from '@market/database';
 import { importBrochure } from './brochure.js';
 
 const [filePath, ...flags] = process.argv.slice(2);
@@ -16,4 +16,4 @@ try {
 } catch (error) {
   console.error(JSON.stringify({ event: 'brochure_ingestion_failed', message: error instanceof Error ? error.message : String(error) }));
   process.exitCode = 1;
-} finally { await prisma.$disconnect(); }
+} finally { await database.$disconnect(); }

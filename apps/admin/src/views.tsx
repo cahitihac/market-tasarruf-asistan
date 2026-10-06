@@ -5,7 +5,7 @@ import { adminGet, adminPost, adminPut } from './api';
 import { Badge, ErrorBlock, Field, LoadingBlock, PageHeader } from './components';
 import { dateTime, money, packageLabel, percent } from './format';
 
-// Admin API rows are intentionally broad because each table includes different nested Prisma shapes.
+// Admin API rows are intentionally broad because each table includes different nested response shapes.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyRecord = Record<string, any>;
 

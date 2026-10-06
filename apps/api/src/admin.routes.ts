@@ -1,11 +1,11 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { loadConfig } from '@market/config';
-import { Prisma, prisma } from '@market/database';
+import { Database, database } from '@market/database';
 import { approveBrochureReview, approveIngestionReview, inspectSourceFreshness, refreshSourceHealth,
   rejectBrochureReview, rejectIngestionReview } from '@market/ingestion';
 import { auditLog, authenticateAdmin, requireAdmin, signInAdmin, type AdminRequest } from './admin-auth.js';
-import { ingestionJobName, sourceIngestionQueue } from './ops-queue.js';
+import { ingestionJobName, serverlessQueueSnapshot, sourceIngestionQueue } from './ops-queue.js';
 
 const matchSchema = z.object({ variantId: z.string().min(1) });
 const approveSchema = z.object({ variantId: z.string().min(1).optional() }).default({});
@@ -69,7 +69,7 @@ function todayStart() {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 }
 
-function redactSource(source: Prisma.DataSourceGetPayload<{ include: { ingestionRuns: true; operationalAlerts: true;
+function redactSource(source: Database.DataSourceGetPayload<{ include: { ingestionRuns: true; operationalAlerts: true;
   approvalEvents: { include: { actor: { select: { email: true; displayName: true; role: true } } } } } }>) {
   const config = source.config && typeof source.config === 'object' && !Array.isArray(source.config)
     ? source.config as Record<string, unknown> : {};
@@ -85,12 +85,16 @@ function redactSource(source: Prisma.DataSourceGetPayload<{ include: { ingestion
   };
 }
 
-function sourceCanRun(source: { authorizationStatus: string; onboardingStatus: string; permittedCommercialUse: boolean; fictional: boolean }) {
+function sourceCanRun(source: { authorizationStatus?: string; onboardingStatus?: string; permittedCommercialUse?: boolean; fictional?: boolean }) {
   return (source.authorizationStatus === 'AUTHORIZED' || source.authorizationStatus === 'PUBLIC_DATA') &&
     (source.fictional || (source.onboardingStatus === 'APPROVED' && source.permittedCommercialUse));
 }
 
 async function queueSnapshot() {
+  const config = loadConfig();
+  if (config.JOB_BACKEND === 'sqs' && config.INGESTION_QUEUE_URL) {
+    return serverlessQueueSnapshot(config.INGESTION_QUEUE_URL);
+  }
   const queue = sourceIngestionQueue();
   try {
     const [failed, delayed, waiting, active] = await Promise.all([
@@ -159,15 +163,15 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const freshnessCutoff = new Date(Date.now() - loadConfig().PRICE_FRESHNESS_HOURS * 60 * 60 * 1000);
     const [pendingReviewCount, failedIngestionRuns, failedExtractionRuns, unmatchedProducts, recentBrochures,
       pricesImportedToday, promotionsCreated, recentAlerts, staleDataCount] = await Promise.all([
-      prisma.reviewItem.count({ where: { state: 'PENDING' } }),
-      prisma.ingestionRun.count({ where: { status: 'FAILED' } }),
-      prisma.extractionRun.count({ where: { status: 'FAILED' } }),
-      prisma.retailerProduct.count({ where: { OR: [{ variantId: null }, { reviewState: { in: ['UNMATCHED', 'NEEDS_REVIEW'] } }] } }),
-      prisma.brochure.findMany({ take: 6, include: { chain: true }, orderBy: { importedAt: 'desc' } }),
-      prisma.priceObservation.count({ where: { retrievedAt: { gte: todayStart() } } }),
-      prisma.promotion.count(),
-      prisma.alert.findMany({ take: 8, include: { deal: true, notification: true }, orderBy: { createdAt: 'desc' } }),
-      prisma.retailerProduct.count({ where: { observations: { none: { observedAt: { gte: freshnessCutoff } } } } }),
+      database.reviewItem.count({ where: { state: 'PENDING' } }),
+      database.ingestionRun.count({ where: { status: 'FAILED' } }),
+      database.extractionRun.count({ where: { status: 'FAILED' } }),
+      database.retailerProduct.count({ where: { OR: [{ variantId: null }, { reviewState: { in: ['UNMATCHED', 'NEEDS_REVIEW'] } }] } }),
+      database.brochure.findMany({ take: 6, include: { chain: true }, orderBy: { importedAt: 'desc' } }),
+      database.priceObservation.count({ where: { retrievedAt: { gte: todayStart() } } }),
+      database.promotion.count(),
+      database.alert.findMany({ take: 8, include: { deal: true, notification: true }, orderBy: { createdAt: 'desc' } }),
+      database.retailerProduct.count({ where: { observations: { none: { observedAt: { gte: freshnessCutoff } } } } }),
     ]);
     return { counts: { pendingReviewCount, failedIngestionRuns: failedIngestionRuns + failedExtractionRuns,
       unmatchedProducts, pricesImportedToday, promotionsCreated, staleDataCount },
@@ -176,7 +180,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
 
   app.get('/admin/data-sources', async () => {
     const [sources, queue] = await Promise.all([
-      prisma.dataSource.findMany({ include: {
+      database.dataSource.findMany({ include: {
         ingestionRuns: { take: 5, orderBy: { startedAt: 'desc' } },
         operationalAlerts: { where: { status: 'OPEN' }, orderBy: { lastSeenAt: 'desc' }, take: 5 },
         approvalEvents: { include: { actor: { select: { email: true, displayName: true, role: true } } },
@@ -194,12 +198,12 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   app.get('/admin/operations', async () => {
     const [queue, alerts, reviewBacklog] = await Promise.all([
       queueSnapshot(),
-      prisma.operationalAlert.findMany({ where: { status: 'OPEN' }, include: { dataSource: true },
+      database.operationalAlert.findMany({ where: { status: 'OPEN' }, include: { dataSource: true },
         orderBy: [{ severity: 'desc' }, { lastSeenAt: 'desc' }], take: 100 }),
-      prisma.reviewItem.count({ where: { state: 'PENDING' } }),
+      database.reviewItem.count({ where: { state: 'PENDING' } }),
     ]);
     if (reviewBacklog > 25) {
-      await prisma.operationalAlert.upsert({ where: { dedupeKey: 'review-backlog:persistent' },
+      await database.operationalAlert.upsert({ where: { dedupeKey: 'review-backlog:persistent' },
         update: { status: 'OPEN', lastSeenAt: new Date(), message: `${reviewBacklog} records are awaiting review.`,
           resolvedAt: null },
         create: { dedupeKey: 'review-backlog:persistent', kind: 'REVIEW_BACKLOG', severity: 'WARNING',
@@ -213,21 +217,21 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     if (!actor) return;
     const parsed = dataSourceUpdateSchema.safeParse(request.body);
     if (!parsed.success) return validationError(reply, parsed.error);
-    const before = await prisma.dataSource.findUnique({ where: { id: request.params.id } });
+    const before = await database.dataSource.findUnique({ where: { id: request.params.id } });
     if (!before) return reply.code(404).send({ error: 'DATA_SOURCE_NOT_FOUND' });
     const merged = { ...before, ...parsed.data };
     if (parsed.data.enabled === true && !sourceCanRun(merged)) return reply.code(409).send({ error: 'DATA_SOURCE_NOT_APPROVED',
       message: 'Source must be authorized and either fictional or approved for permitted commercial use before it can be enabled.' });
-    const after = await prisma.dataSource.update({ where: { id: request.params.id }, data: {
+    const after = await database.dataSource.update({ where: { id: request.params.id }, data: {
       owner: parsed.data.owner,
       ownerContact: parsed.data.ownerContact,
       authorizationStatus: parsed.data.authorizationStatus,
       permittedCommercialUse: parsed.data.permittedCommercialUse,
       allowedDataRetentionDays: parsed.data.allowedDataRetentionDays,
-      geographicCoverage: parsed.data.geographicCoverage as Prisma.InputJsonValue | undefined,
+      geographicCoverage: parsed.data.geographicCoverage as Database.InputJsonValue | undefined,
       credentialRequirements: parsed.data.credentialRequirements,
       feedSpecificationUrl: parsed.data.feedSpecificationUrl,
-      feedSpecification: parsed.data.feedSpecification as Prisma.InputJsonValue | undefined,
+      feedSpecification: parsed.data.feedSpecification as Database.InputJsonValue | undefined,
       onboardingStatus: parsed.data.onboardingStatus,
       enabled: parsed.data.enabled,
       scheduleEveryMs: parsed.data.scheduleEveryMs,
@@ -239,7 +243,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     } });
     await refreshSourceHealth(after.id).catch(() => undefined);
     if (parsed.data.onboardingStatus && parsed.data.onboardingStatus !== before.onboardingStatus) {
-      await prisma.dataSourceApprovalEvent.create({ data: { dataSourceId: before.id, actorId: actor.id,
+      await database.dataSourceApprovalEvent.create({ data: { dataSourceId: before.id, actorId: actor.id,
         fromStatus: before.onboardingStatus, toStatus: parsed.data.onboardingStatus,
         authorizationStatus: parsed.data.authorizationStatus ?? after.authorizationStatus,
         note: parsed.data.reason, metadata: { permittedCommercialUse: after.permittedCommercialUse } } });
@@ -252,7 +256,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string } }>('/admin/data-sources/:id/run', async (request, reply) => {
     const actor = await requireAdmin(request, reply, 'ADMIN');
     if (!actor) return;
-    const source = await prisma.dataSource.findUnique({ where: { id: request.params.id } });
+    const source = await database.dataSource.findUnique({ where: { id: request.params.id } });
     if (!source) return reply.code(404).send({ error: 'DATA_SOURCE_NOT_FOUND' });
     if (!sourceCanRun(source)) return reply.code(409).send({ error: 'DATA_SOURCE_NOT_APPROVED' });
     const queue = sourceIngestionQueue();
@@ -270,9 +274,9 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string } }>('/admin/data-sources/:id/pause', async (request, reply) => {
     const actor = await requireAdmin(request, reply, 'ADMIN');
     if (!actor) return;
-    const before = await prisma.dataSource.findUnique({ where: { id: request.params.id } });
+    const before = await database.dataSource.findUnique({ where: { id: request.params.id } });
     if (!before) return reply.code(404).send({ error: 'DATA_SOURCE_NOT_FOUND' });
-    const after = await prisma.dataSource.update({ where: { id: request.params.id },
+    const after = await database.dataSource.update({ where: { id: request.params.id },
       data: { enabled: false, operationalStatus: 'PAUSED' } });
     await auditLog({ actorId: actor.id, action: 'DATA_SOURCE_PAUSED', entityType: 'DataSource',
       entityId: before.id, before, after, requestId: request.id });
@@ -282,10 +286,10 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string } }>('/admin/data-sources/:id/resume', async (request, reply) => {
     const actor = await requireAdmin(request, reply, 'ADMIN');
     if (!actor) return;
-    const before = await prisma.dataSource.findUnique({ where: { id: request.params.id } });
+    const before = await database.dataSource.findUnique({ where: { id: request.params.id } });
     if (!before) return reply.code(404).send({ error: 'DATA_SOURCE_NOT_FOUND' });
     if (!sourceCanRun(before)) return reply.code(409).send({ error: 'DATA_SOURCE_NOT_APPROVED' });
-    const after = await prisma.dataSource.update({ where: { id: request.params.id },
+    const after = await database.dataSource.update({ where: { id: request.params.id },
       data: { enabled: true, operationalStatus: 'IDLE' } });
     await refreshSourceHealth(after.id).catch(() => undefined);
     await auditLog({ actorId: actor.id, action: 'DATA_SOURCE_RESUMED', entityType: 'DataSource',
@@ -294,24 +298,24 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   });
 
   app.get<{ Querystring: { source?: string; status?: string; date?: string } }>('/admin/ingestion-runs', async request => ({
-    ingestionRuns: await prisma.ingestionRun.findMany({ where: {
+    ingestionRuns: await database.ingestionRun.findMany({ where: {
       ...(request.query.source ? { source: { contains: request.query.source, mode: 'insensitive' as const } } : {}),
-      ...(request.query.status ? { status: request.query.status as Prisma.EnumRunStatusFilter['equals'] } : {}),
+      ...(request.query.status ? { status: request.query.status as Database.EnumRunStatusFilter['equals'] } : {}),
       ...(request.query.date ? { startedAt: { gte: new Date(`${request.query.date}T00:00:00.000Z`),
         lt: new Date(`${request.query.date}T23:59:59.999Z`) } } : {}),
     }, include: { rows: { take: 25, orderBy: { rowNumber: 'asc' } } }, orderBy: { startedAt: 'desc' }, take: 100 }),
-    extractionRuns: await prisma.extractionRun.findMany({ where: {
-      ...(request.query.status ? { status: request.query.status as Prisma.EnumRunStatusFilter['equals'] } : {}),
+    extractionRuns: await database.extractionRun.findMany({ where: {
+      ...(request.query.status ? { status: request.query.status as Database.EnumRunStatusFilter['equals'] } : {}),
     }, include: { brochure: { include: { chain: true } } }, orderBy: { startedAt: 'desc' }, take: 100 }),
   }));
 
   app.get<{ Params: { id: string } }>('/admin/ingestion-runs/:id', async (request, reply) => {
-    const run = await prisma.ingestionRun.findUnique({ where: { id: request.params.id }, include: {
+    const run = await database.ingestionRun.findUnique({ where: { id: request.params.id }, include: {
       rows: { include: { retailerProduct: true, observation: true }, orderBy: { rowNumber: 'asc' } },
       observations: { take: 50, include: priceInclude, orderBy: { observedAt: 'desc' } },
     } });
     if (run) return { kind: 'price-ingestion', run };
-    const extractionRun = await prisma.extractionRun.findUnique({ where: { id: request.params.id }, include: {
+    const extractionRun = await database.extractionRun.findUnique({ where: { id: request.params.id }, include: {
       brochure: { include: { chain: true, pages: true } },
       offers: { include: { page: true, observation: true, promotion: true, reviewItems: true } },
       reviewItems: { include: reviewInclude },
@@ -320,15 +324,15 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   });
 
   app.get<{ Querystring: { retailer?: string; status?: string } }>('/admin/brochures', async request => ({
-    brochures: await prisma.brochure.findMany({ where: {
-      ...(request.query.status ? { status: request.query.status as Prisma.EnumBrochureStatusFilter['equals'] } : {}),
+    brochures: await database.brochure.findMany({ where: {
+      ...(request.query.status ? { status: request.query.status as Database.EnumBrochureStatusFilter['equals'] } : {}),
       ...(request.query.retailer ? { chain: { name: { contains: request.query.retailer, mode: 'insensitive' as const } } } : {}),
     }, include: { chain: true, pages: true, extractionRuns: { take: 1, orderBy: { startedAt: 'desc' } },
       _count: { select: { offers: true } } }, orderBy: { importedAt: 'desc' }, take: 100 }),
   }));
 
   app.get<{ Params: { id: string } }>('/admin/brochures/:id', async (request, reply) => {
-    const brochure = await prisma.brochure.findUnique({ where: { id: request.params.id }, include: {
+    const brochure = await database.brochure.findUnique({ where: { id: request.params.id }, include: {
       chain: true, pages: { orderBy: { pageNumber: 'asc' } }, extractionRuns: { orderBy: { startedAt: 'desc' } },
       offers: { include: { page: true, reviewItems: true, observation: true, promotion: { include: { conditions: true } } },
         orderBy: { createdAt: 'asc' } },
@@ -341,9 +345,9 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     if (!actor) return;
     const parsed = sourceAuthorizationSchema.safeParse(request.body);
     if (!parsed.success) return validationError(reply, parsed.error);
-    const before = await prisma.brochure.findUnique({ where: { id: request.params.id } });
+    const before = await database.brochure.findUnique({ where: { id: request.params.id } });
     if (!before) return reply.code(404).send({ error: 'BROCHURE_NOT_FOUND' });
-    const after = await prisma.brochure.update({ where: { id: request.params.id }, data: {
+    const after = await database.brochure.update({ where: { id: request.params.id }, data: {
       sourceAuthorizationStatus: parsed.data.status,
       sourceOwner: parsed.data.sourceOwner,
       allowedUsage: parsed.data.allowedUsage,
@@ -358,9 +362,9 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   });
 
   app.get<{ Querystring: { retailer?: string; reason?: string; status?: string; sourceType?: string; confidenceMax?: string } }>('/admin/reviews', async request => ({
-    reviewItems: await prisma.reviewItem.findMany({ where: {
+    reviewItems: await database.reviewItem.findMany({ where: {
       ...(request.query.reason ? { reason: request.query.reason } : {}),
-      ...(request.query.status ? { state: request.query.status as Prisma.EnumMatchingReviewStateFilter['equals'] } : {}),
+      ...(request.query.status ? { state: request.query.status as Database.EnumMatchingReviewStateFilter['equals'] } : {}),
       ...(request.query.confidenceMax ? { confidence: { lte: Number(request.query.confidenceMax) } } : {}),
       ...(request.query.retailer ? { brochureOffer: { brochure: { chain: { name: { contains: request.query.retailer,
         mode: 'insensitive' as const } } } } } : {}),
@@ -370,8 +374,8 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   }));
 
   app.get<{ Querystring: { status?: string; source?: string; reason?: string } }>('/admin/ingestion-reviews', async request => ({
-    reviewItems: await prisma.ingestionReviewItem.findMany({ where: {
-      ...(request.query.status ? { state: request.query.status as Prisma.EnumMatchingReviewStateFilter['equals'] } : {}),
+    reviewItems: await database.ingestionReviewItem.findMany({ where: {
+      ...(request.query.status ? { state: request.query.status as Database.EnumMatchingReviewStateFilter['equals'] } : {}),
       ...(request.query.reason ? { reason: { contains: request.query.reason, mode: 'insensitive' as const } } : {}),
       ...(request.query.source ? { ingestionRow: { run: { source: { contains: request.query.source,
         mode: 'insensitive' as const } } } } : {}),
@@ -383,14 +387,14 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     if (!actor) return;
     const parsed = ingestionReviewApproveSchema.safeParse(request.body ?? {});
     if (!parsed.success) return validationError(reply, parsed.error);
-    const before = await prisma.ingestionReviewItem.findUnique({ where: { id: request.params.id },
+    const before = await database.ingestionReviewItem.findUnique({ where: { id: request.params.id },
       include: ingestionReviewInclude });
     if (!before) return reply.code(404).send({ error: 'INGESTION_REVIEW_NOT_FOUND' });
     try {
       const result = await approveIngestionReview({ reviewItemId: request.params.id, actorId: actor.id,
         variantId: parsed.data.variantId, correctedValues: parsed.data.correctedValues,
         note: parsed.data.note });
-      const after = await prisma.ingestionReviewItem.findUnique({ where: { id: request.params.id },
+      const after = await database.ingestionReviewItem.findUnique({ where: { id: request.params.id },
         include: ingestionReviewInclude });
       await auditLog({ actorId: actor.id, action: 'INGESTION_REVIEW_APPROVED',
         entityType: 'IngestionReviewItem', entityId: request.params.id, before, after,
@@ -407,12 +411,12 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     if (!actor) return;
     const parsed = reasonSchema.safeParse(request.body ?? {});
     if (!parsed.success) return validationError(reply, parsed.error);
-    const before = await prisma.ingestionReviewItem.findUnique({ where: { id: request.params.id },
+    const before = await database.ingestionReviewItem.findUnique({ where: { id: request.params.id },
       include: ingestionReviewInclude });
     if (!before) return reply.code(404).send({ error: 'INGESTION_REVIEW_NOT_FOUND' });
     const reviewItem = await rejectIngestionReview({ reviewItemId: request.params.id,
       actorId: actor.id, reason: parsed.data.reason });
-    const after = await prisma.ingestionReviewItem.findUnique({ where: { id: request.params.id },
+    const after = await database.ingestionReviewItem.findUnique({ where: { id: request.params.id },
       include: ingestionReviewInclude });
     await auditLog({ actorId: actor.id, action: 'INGESTION_REVIEW_REJECTED',
       entityType: 'IngestionReviewItem', entityId: request.params.id, before, after,
@@ -421,7 +425,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   });
 
   app.get<{ Params: { id: string } }>('/admin/reviews/:id', async (request, reply) => {
-    const review = await prisma.reviewItem.findUnique({ where: { id: request.params.id }, include: reviewInclude });
+    const review = await database.reviewItem.findUnique({ where: { id: request.params.id }, include: reviewInclude });
     return review ? { reviewItem: review } : reply.code(404).send({ error: 'REVIEW_ITEM_NOT_FOUND' });
   });
 
@@ -431,10 +435,10 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const parsed = approveSchema.safeParse(request.body ?? {});
     if (!parsed.success) return validationError(reply, parsed.error);
     try {
-      const before = await prisma.reviewItem.findUnique({ where: { id: request.params.id }, include: reviewInclude });
+      const before = await database.reviewItem.findUnique({ where: { id: request.params.id }, include: reviewInclude });
       const result = await approveBrochureReview(request.params.id, parsed.data.variantId);
-      const after = await prisma.reviewItem.findUnique({ where: { id: request.params.id }, include: reviewInclude });
-      await prisma.reviewEvent.create({ data: { reviewItemId: request.params.id, actorId: actor.id,
+      const after = await database.reviewItem.findUnique({ where: { id: request.params.id }, include: reviewInclude });
+      await database.reviewEvent.create({ data: { reviewItemId: request.params.id, actorId: actor.id,
         action: parsed.data.variantId ? 'MANUAL_MATCH_APPROVED' : 'APPROVED', fromState: before?.state,
         toState: after?.state, metadata: { result } } });
       await auditLog({ actorId: actor.id, action: parsed.data.variantId ? 'REVIEW_MANUALLY_MATCHED' : 'REVIEW_APPROVED',
@@ -451,10 +455,10 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const parsed = matchSchema.safeParse(request.body);
     if (!parsed.success) return validationError(reply, parsed.error);
     try {
-      const before = await prisma.reviewItem.findUnique({ where: { id: request.params.id }, include: reviewInclude });
+      const before = await database.reviewItem.findUnique({ where: { id: request.params.id }, include: reviewInclude });
       const result = await approveBrochureReview(request.params.id, parsed.data.variantId);
-      const after = await prisma.reviewItem.findUnique({ where: { id: request.params.id }, include: reviewInclude });
-      await prisma.reviewEvent.create({ data: { reviewItemId: request.params.id, actorId: actor.id,
+      const after = await database.reviewItem.findUnique({ where: { id: request.params.id }, include: reviewInclude });
+      await database.reviewEvent.create({ data: { reviewItemId: request.params.id, actorId: actor.id,
         action: 'MANUAL_MATCH_APPROVED', fromState: before?.state, toState: after?.state,
         metadata: { variantId: parsed.data.variantId, result } } });
       await auditLog({ actorId: actor.id, action: 'REVIEW_MANUALLY_MATCHED', entityType: 'ReviewItem',
@@ -471,10 +475,10 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const parsed = reasonSchema.safeParse(request.body ?? {});
     if (!parsed.success) return validationError(reply, parsed.error);
     try {
-      const before = await prisma.reviewItem.findUnique({ where: { id: request.params.id }, include: reviewInclude });
+      const before = await database.reviewItem.findUnique({ where: { id: request.params.id }, include: reviewInclude });
       const reviewItem = await rejectBrochureReview(request.params.id);
-      const after = await prisma.reviewItem.findUnique({ where: { id: request.params.id }, include: reviewInclude });
-      await prisma.reviewEvent.create({ data: { reviewItemId: request.params.id, actorId: actor.id,
+      const after = await database.reviewItem.findUnique({ where: { id: request.params.id }, include: reviewInclude });
+      await database.reviewEvent.create({ data: { reviewItemId: request.params.id, actorId: actor.id,
         action: 'REJECTED', fromState: before?.state, toState: after?.state, note: parsed.data.reason } });
       await auditLog({ actorId: actor.id, action: 'REVIEW_REJECTED', entityType: 'ReviewItem',
         entityId: request.params.id, before, after, reason: parsed.data.reason, requestId: request.id });
@@ -490,13 +494,13 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     if (!parsed.success) return validationError(reply, parsed.error);
     const summary: Array<{ id: string; status: string; message?: string; observationId?: string }> = [];
     for (const id of parsed.data.reviewItemIds) {
-      const before = await prisma.reviewItem.findUnique({ where: { id }, include: reviewInclude });
+      const before = await database.reviewItem.findUnique({ where: { id }, include: reviewInclude });
       if (!before) { summary.push({ id, status: 'NOT_FOUND' }); continue; }
       try {
         if (parsed.data.action === 'REJECT') {
           await rejectBrochureReview(id);
-          const after = await prisma.reviewItem.findUnique({ where: { id }, include: reviewInclude });
-          await prisma.reviewEvent.create({ data: { reviewItemId: id, actorId: actor.id, action: 'BATCH_REJECTED',
+          const after = await database.reviewItem.findUnique({ where: { id }, include: reviewInclude });
+          await database.reviewEvent.create({ data: { reviewItemId: id, actorId: actor.id, action: 'BATCH_REJECTED',
             fromState: before.state, toState: after?.state, note: parsed.data.reason } });
           await auditLog({ actorId: actor.id, action: 'BATCH_REVIEW_REJECTED', entityType: 'ReviewItem',
             entityId: id, before, after, reason: parsed.data.reason, requestId: request.id });
@@ -507,8 +511,8 @@ export async function registerAdminRoutes(app: FastifyInstance) {
             continue;
           }
           const result = await approveBrochureReview(id, before.selectedVariantId);
-          const after = await prisma.reviewItem.findUnique({ where: { id }, include: reviewInclude });
-          await prisma.reviewEvent.create({ data: { reviewItemId: id, actorId: actor.id, action: 'BATCH_APPROVED',
+          const after = await database.reviewItem.findUnique({ where: { id }, include: reviewInclude });
+          await database.reviewEvent.create({ data: { reviewItemId: id, actorId: actor.id, action: 'BATCH_APPROVED',
             fromState: before.state, toState: after?.state, note: parsed.data.reason,
             metadata: { selectedVariantId: before.selectedVariantId, result } } });
           await auditLog({ actorId: actor.id, action: 'BATCH_REVIEW_APPROVED', entityType: 'ReviewItem',
@@ -524,7 +528,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   });
 
   app.get<{ Querystring: { search?: string } }>('/admin/products', async request => ({
-    products: await prisma.product.findMany({ where: request.query.search ? { OR: [
+    products: await database.product.findMany({ where: request.query.search ? { OR: [
       { name: { contains: request.query.search, mode: 'insensitive' } },
       { ean: { contains: request.query.search } },
       { brand: { name: { contains: request.query.search, mode: 'insensitive' } } },
@@ -537,11 +541,12 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     if (!actor) return;
     const parsed = destructiveAttemptSchema.safeParse(request.body);
     if (!parsed.success) return validationError(reply, parsed.error);
-    const product = await prisma.product.findUnique({ where: { id: request.params.id }, include: {
+    const product = await database.product.findUnique({ where: { id: request.params.id }, include: {
       variants: { include: { retailerProducts: { select: { id: true } } } },
     } });
     if (!product) return reply.code(404).send({ error: 'PRODUCT_NOT_FOUND' });
-    const affectedRetailerProducts = product.variants.reduce((total, variant) => total + variant.retailerProducts.length, 0);
+    const affectedRetailerProducts = product.variants.reduce((total: number, variant: { retailerProducts: unknown[] }) =>
+      total + variant.retailerProducts.length, 0);
     await auditLog({ actorId: actor.id, action: 'DESTRUCTIVE_ACTION_BLOCKED', entityType: 'Product',
       entityId: product.id, before: product, reason: parsed.data.reason, requestId: request.id,
       metadata: { attempted: 'PRODUCT_DELETE', confirmation: parsed.data.confirmation, affectedRetailerProducts } });
@@ -551,7 +556,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   });
 
   app.get<{ Querystring: { search?: string; retailer?: string } }>('/admin/retailer-products', async request => ({
-    retailerProducts: await prisma.retailerProduct.findMany({ where: {
+    retailerProducts: await database.retailerProduct.findMany({ where: {
       ...(request.query.search ? { OR: [
         { rawName: { contains: request.query.search, mode: 'insensitive' as const } },
         { ean: { contains: request.query.search } },
@@ -564,9 +569,9 @@ export async function registerAdminRoutes(app: FastifyInstance) {
 
   app.get<{ Querystring: { retailer?: string; product?: string; source?: string; verificationStatus?: string; freshness?: string } }>('/admin/prices', async request => {
     const cutoff = request.query.freshness === 'stale' ? new Date(Date.now() - loadConfig().PRICE_FRESHNESS_HOURS * 60 * 60 * 1000) : null;
-    const observations = await prisma.priceObservation.findMany({ where: {
-      ...(request.query.source ? { sourceType: request.query.source as Prisma.EnumPriceSourceTypeFilter['equals'] } : {}),
-      ...(request.query.verificationStatus ? { verificationStatus: request.query.verificationStatus as Prisma.EnumVerificationStatusFilter['equals'] } : {}),
+    const observations = await database.priceObservation.findMany({ where: {
+      ...(request.query.source ? { sourceType: request.query.source as Database.EnumPriceSourceTypeFilter['equals'] } : {}),
+      ...(request.query.verificationStatus ? { verificationStatus: request.query.verificationStatus as Database.EnumVerificationStatusFilter['equals'] } : {}),
       ...(cutoff ? { observedAt: { lt: cutoff } } : {}),
       ...(request.query.retailer ? { retailerProduct: { chain: { name: { contains: request.query.retailer, mode: 'insensitive' as const } } } } : {}),
       ...(request.query.product ? { retailerProduct: { variant: { product: { name: { contains: request.query.product,
@@ -577,36 +582,36 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   });
 
   app.get<{ Params: { id: string } }>('/admin/prices/:id', async (request, reply) => {
-    const observation = await prisma.priceObservation.findUnique({ where: { id: request.params.id }, include: priceInclude });
+    const observation = await database.priceObservation.findUnique({ where: { id: request.params.id }, include: priceInclude });
     return observation ? { price: { ...observation,
       sourceAuthorizationStatus: sourceAuthorizationFor(observation.sourceType, observation.brochureOffer?.brochure) } } :
       reply.code(404).send({ error: 'PRICE_NOT_FOUND' });
   });
 
   app.get('/admin/promotions', async () => ({
-    promotions: await prisma.promotion.findMany({ include: { chain: true, retailerProduct: { include: { variant: { include: {
+    promotions: await database.promotion.findMany({ include: { chain: true, retailerProduct: { include: { variant: { include: {
       product: { include: { brand: true, category: true } } } } } }, brochureOffer: { include: { page: true, brochure: { include: { chain: true } } } },
       conditions: true, observations: { take: 5, orderBy: { observedAt: 'desc' } } }, orderBy: { startsAt: 'desc' }, take: 100 }),
   }));
 
   app.get('/admin/deals', async () => ({
-    deals: await prisma.deal.findMany({ include: { canonicalProduct: { include: { brand: true, category: true } },
+    deals: await database.deal.findMany({ include: { canonicalProduct: { include: { brand: true, category: true } },
       retailerProduct: { include: { chain: true } }, branch: true, need: true, observation: true },
       orderBy: [{ evaluatedAt: 'desc' }], take: 100 }),
   }));
 
   app.get('/admin/alerts', async () => ({
-    alerts: await prisma.alert.findMany({ include: { deal: true, need: true, notification: true },
+    alerts: await database.alert.findMany({ include: { deal: true, need: true, notification: true },
       orderBy: { createdAt: 'desc' }, take: 100 }),
   }));
 
   app.get('/admin/notifications', async () => ({
-    notifications: await prisma.notification.findMany({ include: { alert: { include: { deal: true, need: true } } },
+    notifications: await database.notification.findMany({ include: { alert: { include: { deal: true, need: true } } },
       orderBy: { createdAt: 'desc' }, take: 100 }),
   }));
 
   app.get<{ Querystring: { entityType?: string; entityId?: string } }>('/admin/audit-logs', async request => ({
-    auditLogs: await prisma.adminAuditLog.findMany({ where: {
+    auditLogs: await database.adminAuditLog.findMany({ where: {
       ...(request.query.entityType ? { entityType: request.query.entityType } : {}),
       ...(request.query.entityId ? { entityId: request.query.entityId } : {}),
     }, include: { actor: { select: { email: true, displayName: true, role: true } } },

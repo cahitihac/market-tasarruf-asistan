@@ -1,4 +1,4 @@
-import { Prisma, prisma } from '@market/database';
+import { Database, database } from '@market/database';
 
 type Severity = 'INFO' | 'WARNING' | 'CRITICAL';
 
@@ -23,8 +23,8 @@ export interface ExternalAlertMessage {
 
 const mockAlerts: ExternalAlertMessage[] = [];
 
-function json(value: unknown): Prisma.InputJsonValue {
-  return JSON.parse(JSON.stringify(value ?? null)) as Prisma.InputJsonValue;
+function json(value: unknown): Database.InputJsonValue {
+  return JSON.parse(JSON.stringify(value ?? null)) as Database.InputJsonValue;
 }
 
 function provider() {
@@ -59,15 +59,15 @@ export function drainMockOperationalAlerts() {
 export async function upsertOperationalAlert(input: OperationalAlertInput) {
   const now = new Date();
   const severity = input.severity ?? 'WARNING';
-  const existing = await prisma.operationalAlert.findUnique({ where: { dedupeKey: input.key } });
-  const alert = existing ? await prisma.operationalAlert.update({ where: { id: existing.id }, data: {
+  const existing = await database.operationalAlert.findUnique({ where: { dedupeKey: input.key } });
+  const alert = existing ? await database.operationalAlert.update({ where: { id: existing.id }, data: {
     status: 'OPEN', severity, title: input.title, message: input.message,
-    metadata: input.metadata === undefined ? Prisma.JsonNull : json(input.metadata),
+    metadata: input.metadata === undefined ? Database.JsonNull : json(input.metadata),
     lastSeenAt: now, resolvedAt: null,
-  } }) : await prisma.operationalAlert.create({ data: {
+  } }) : await database.operationalAlert.create({ data: {
     dedupeKey: input.key, dataSourceId: input.sourceId, kind: input.kind, severity,
     title: input.title, message: input.message,
-    metadata: input.metadata === undefined ? Prisma.JsonNull : json(input.metadata),
+    metadata: input.metadata === undefined ? Database.JsonNull : json(input.metadata),
   } });
   const shouldSend = provider() !== 'none' &&
     (!alert.lastExternalSentAt || now.getTime() - alert.lastExternalSentAt.getTime() >= minIntervalMs());
@@ -76,17 +76,17 @@ export async function upsertOperationalAlert(input: OperationalAlertInput) {
     severity: alert.severity, title: alert.title, message: alert.message, dataSourceId: alert.dataSourceId };
   try {
     await sendExternalAlert(message);
-    return prisma.operationalAlert.update({ where: { id: alert.id }, data: {
+    return database.operationalAlert.update({ where: { id: alert.id }, data: {
       lastExternalSentAt: now, externalSendCount: { increment: 1 }, externalLastError: null,
     } });
   } catch (error) {
-    return prisma.operationalAlert.update({ where: { id: alert.id }, data: {
+    return database.operationalAlert.update({ where: { id: alert.id }, data: {
       externalLastError: error instanceof Error ? error.message : String(error),
     } });
   }
 }
 
 export async function resolveOperationalAlert(key: string) {
-  await prisma.operationalAlert.updateMany({ where: { dedupeKey: key, status: { not: 'RESOLVED' } },
+  await database.operationalAlert.updateMany({ where: { dedupeKey: key, status: { not: 'RESOLVED' } },
     data: { status: 'RESOLVED', resolvedAt: new Date() } });
 }

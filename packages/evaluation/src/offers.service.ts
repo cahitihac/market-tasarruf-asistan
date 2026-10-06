@@ -1,4 +1,4 @@
-import { prisma } from '@market/database';
+import { database } from '@market/database';
 import { loadConfig } from '@market/config';
 import { calculatePriceStatistics, distanceKm, isCurrentPrice, isPromotionActive, matchNeed, promotionDiscountPercent, rankOffer, scoreDeal, type NeedMatch } from '@market/domain';
 import type { NeedConstraints } from '@market/contracts';
@@ -15,7 +15,7 @@ interface PreliminaryOffer {
 }
 
 function loadListings(categoryId?: string | null) {
-  return prisma.retailerProduct.findMany({
+  return database.retailerProduct.findMany({
     where: { reviewState: 'APPROVED', variantId: { not: null },
       ...(categoryId ? { variant: { is: { product: { is: { categoryId } } } } } : {}) },
     include: { chain: true, variant: { include: { product: { include: { brand: true, category: true } } } } },
@@ -23,7 +23,7 @@ function loadListings(categoryId?: string | null) {
 }
 
 function loadObservations(ids: string[], now: Date) {
-  return prisma.priceObservation.findMany({
+  return database.priceObservation.findMany({
     where: { retailerProductId: { in: ids }, currency: 'TRY', observedAt: { lte: now } },
     include: { branch: true, promotion: { select: { startsAt: true, endsAt: true } } },
     orderBy: [{ observedAt: 'desc' }, { retrievedAt: 'desc' }, { id: 'desc' }],
@@ -35,7 +35,7 @@ export async function matchingOffers(need: NeedRecord, constraints: NeedConstrai
   const maximumAgeHours = loadConfig().PRICE_FRESHNESS_HOURS;
   const listings = await loadListings(need.categoryId);
   const observations = await loadObservations(listings.map(listing => listing.id), now);
-  const home = await prisma.userLocation.findFirst({ where: { userId: need.userId }, orderBy: { id: 'asc' } });
+  const home = await database.userLocation.findFirst({ where: { userId: need.userId }, orderBy: { id: 'asc' } });
   const byListingAndBranch = new Map<string, typeof observations>();
   for (const observation of observations) {
     const key = `${observation.retailerProductId}:${observation.branchId ?? 'online'}`;
@@ -54,7 +54,8 @@ export async function matchingOffers(need: NeedRecord, constraints: NeedConstrai
       if (!current || !isCurrentPrice(current.observedAt, now, maximumAgeHours) ||
         (current.promotionId && !isPromotionActive(current.promotion, now))) continue;
       const distance = home && current.branch?.latitude != null && current.branch.longitude != null
-        ? distanceKm(home, { latitude: current.branch.latitude, longitude: current.branch.longitude }) : null;
+        ? distanceKm({ latitude: home.latitude, longitude: home.longitude },
+          { latitude: current.branch.latitude, longitude: current.branch.longitude }) : null;
       const match = matchNeed({ name: need.title, categorySlug: need.category?.slug, ...constraints }, {
         productName: variant.product.name, categorySlug: variant.product.category.slug, brandName: variant.product.brand?.name ?? null,
         quantity: variant.quantity, unit: variant.unit, packageCount: variant.packageCount, priceMinor: current.priceMinor, distanceKm: distance,

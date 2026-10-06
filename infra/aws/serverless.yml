@@ -1,0 +1,243 @@
+service: market-assistant
+frameworkVersion: '4'
+
+provider:
+  name: aws
+  region: ${opt:region, 'eu-central-1'}
+  stage: ${opt:stage, 'dev'}
+  runtime: nodejs22.x
+  architecture: x86_64
+  logRetentionInDays: 14
+  versionFunctions: false
+  stackTags:
+    Project: market-assistant
+    Stage: ${sls:stage}
+    ManagedBy: serverless
+  tags:
+    Project: market-assistant
+    Stage: ${sls:stage}
+  environment:
+    NODE_ENV: production
+    DYNAMODB_TABLE:
+      Ref: ApplicationTable
+    JOB_BACKEND: sqs
+    LOG_LEVEL: ${env:LOG_LEVEL, 'info'}
+    CORS_ORIGINS: ${env:CORS_ORIGINS, 'http://localhost:3000,http://localhost:5173,http://localhost:8081,http://127.0.0.1:8081,http://localhost:3002,http://127.0.0.1:3002'}
+    EVALUATION_QUEUE_URL:
+      Ref: EvaluationQueue
+    INGESTION_QUEUE_URL:
+      Ref: IngestionQueue
+    PUSH_QUEUE_URL:
+      Ref: PushQueue
+    PUSH_STATUS_QUEUE_URL:
+      Ref: PushStatusQueue
+    ASSET_BUCKET:
+      Ref: AssetBucket
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          Resource: '*'
+        - Effect: Allow
+          Action:
+            - dynamodb:DescribeTable
+            - dynamodb:GetItem
+            - dynamodb:Query
+            - dynamodb:TransactWriteItems
+          Resource:
+            - Fn::GetAtt: [ApplicationTable, Arn]
+            - Fn::Join:
+                - ''
+                - - Fn::GetAtt: [ApplicationTable, Arn]
+                  - '/index/*'
+        - Effect: Allow
+          Action:
+            - sqs:SendMessage
+            - sqs:ReceiveMessage
+            - sqs:DeleteMessage
+            - sqs:GetQueueAttributes
+          Resource:
+            - Fn::GetAtt: [EvaluationQueue, Arn]
+            - Fn::GetAtt: [IngestionQueue, Arn]
+            - Fn::GetAtt: [PushQueue, Arn]
+            - Fn::GetAtt: [PushStatusQueue, Arn]
+            - Fn::GetAtt: [EvaluationDlq, Arn]
+            - Fn::GetAtt: [IngestionDlq, Arn]
+            - Fn::GetAtt: [PushDlq, Arn]
+            - Fn::GetAtt: [PushStatusDlq, Arn]
+        - Effect: Allow
+          Action:
+            - s3:ListBucket
+          Resource:
+            Fn::GetAtt: [AssetBucket, Arn]
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:PutObject
+            - s3:DeleteObject
+          Resource:
+            Fn::Join:
+              - ''
+              - - Fn::GetAtt: [AssetBucket, Arn]
+                - '/*'
+        - Effect: Allow
+          Action:
+            - ssm:GetParameter
+          Resource:
+            Fn::Join:
+              - ''
+              - - 'arn:'
+                - Ref: AWS::Partition
+                - ':ssm:'
+                - Ref: AWS::Region
+                - ':'
+                - Ref: AWS::AccountId
+                - ':parameter'
+                - ${self:custom.expoPushAccessTokenParameter}
+  httpApi:
+    cors:
+      allowedOrigins:
+        - http://localhost:3000
+        - http://localhost:5173
+        - http://localhost:8081
+        - http://127.0.0.1:8081
+        - http://localhost:3002
+        - http://127.0.0.1:3002
+        - ${env:ADMIN_ORIGIN, 'http://localhost:3002'}
+      allowedHeaders:
+        - Content-Type
+        - Authorization
+        - X-Requested-With
+      allowedMethods:
+        - GET
+        - POST
+        - PUT
+        - PATCH
+        - DELETE
+        - OPTIONS
+      allowCredentials: true
+
+build:
+  esbuild:
+    bundle: true
+    minify: false
+    sourcemap: false
+    target: node22
+    format: esm
+    outExtension:
+      .js: .mjs
+
+package:
+  individually: true
+
+custom:
+  evaluationSchedule: ${env:EVALUATION_SCHEDULE, 'rate(15 minutes)'}
+  ingestionSchedule: ${env:INGESTION_SCHEDULE, 'rate(1 hour)'}
+  expoPushAccessTokenParameter: /market-assistant/${sls:stage}/expo-push-access-token
+
+functions:
+  api:
+    name: market-assistant-${sls:stage}-api
+    handler: handlers/api.handler
+    memorySize: 1536
+    timeout: 30
+    reservedConcurrency: 5
+    events:
+      - httpApi:
+          path: /
+          method: ANY
+      - httpApi:
+          path: /{proxy+}
+          method: ANY
+
+  evaluation:
+    name: market-assistant-${sls:stage}-evaluation
+    handler: handlers/evaluation.handler
+    memorySize: 2048
+    timeout: 900
+    reservedConcurrency: 1
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt: [EvaluationQueue, Arn]
+          batchSize: 1
+          maximumBatchingWindow: 0
+          functionResponseType: ReportBatchItemFailures
+
+  ingestion:
+    name: market-assistant-${sls:stage}-ingestion
+    handler: handlers/ingestion.handler
+    memorySize: 2048
+    timeout: 900
+    reservedConcurrency: 1
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt: [IngestionQueue, Arn]
+          batchSize: 1
+          maximumBatchingWindow: 0
+          functionResponseType: ReportBatchItemFailures
+
+  publicPush:
+    name: market-assistant-${sls:stage}-public-push
+    handler: handlers/public-push.handler
+    memorySize: 512
+    timeout: 120
+    reservedConcurrency: 10
+    environment:
+      EXPO_PUSH_ACCESS_TOKEN_PARAMETER: ${self:custom.expoPushAccessTokenParameter}
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt: [PushQueue, Arn]
+          batchSize: 10
+          maximumBatchingWindow: 1
+          maximumConcurrency: 10
+          functionResponseType: ReportBatchItemFailures
+
+  pushStatus:
+    name: market-assistant-${sls:stage}-push-status
+    handler: handlers/push-status.handler
+    memorySize: 1024
+    timeout: 120
+    reservedConcurrency: 2
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt: [PushStatusQueue, Arn]
+          batchSize: 10
+          maximumBatchingWindow: 1
+          maximumConcurrency: 2
+          functionResponseType: ReportBatchItemFailures
+
+resources:
+  - ${file(./resources/database.yml)}
+  - ${file(./resources/queues.yml)}
+  - ${file(./resources/storage.yml)}
+  - ${file(./resources/monitoring.yml)}
+  - Outputs:
+      AssetBucketName:
+        Description: Private S3 bucket for brochures, previews, and ingestion artifacts
+        Value:
+          Ref: AssetBucket
+      DynamoDbTableName:
+        Description: DynamoDB single-table persistence resource
+        Value:
+          Ref: ApplicationTable
+      DynamoDbTableArn:
+        Description: DynamoDB table ARN
+        Value:
+          Fn::GetAtt: [ApplicationTable, Arn]
+      ExpoPushAccessTokenParameterName:
+        Description: Pre-provisioned SSM Standard SecureString read by the public push Lambda
+        Value: ${self:custom.expoPushAccessTokenParameter}
+      EvaluationQueueUrl:
+        Value:
+          Ref: EvaluationQueue
+      IngestionQueueUrl:
+        Value:
+          Ref: IngestionQueue

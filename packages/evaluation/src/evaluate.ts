@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { needConstraintsSchema } from '@market/contracts';
-import { Prisma, prisma } from '@market/database';
+import { Database, database } from '@market/database';
 import { DEAL_SCORE_VERSION, shouldAlert, type PreviousAlert } from '@market/domain';
 import { matchingOffers, type NeedRecord } from './offers.service.js';
 
@@ -33,9 +33,9 @@ function snapshot(need: NeedRecord, offer: Offer) {
     currentPriceMinor: offer.currentPrice.amountMinor, unitPriceMinor: offer.unitPrice.amountMinor,
     unitBasis: offer.unitPrice.basis, currency: offer.currentPrice.currency,
     matchScore: offer.matchScore, score: offer.dealScore, label: offer.recommendation,
-    action: offer.action, reasons: offer.explanationReasons as Prisma.InputJsonValue,
-    matchReasons: offer.matchReason as Prisma.InputJsonValue,
-    priceStatistics: offer.priceStatistics as unknown as Prisma.InputJsonValue,
+    action: offer.action, reasons: offer.explanationReasons as Database.InputJsonValue,
+    matchReasons: offer.matchReason as Database.InputJsonValue,
+    priceStatistics: offer.priceStatistics as unknown as Database.InputJsonValue,
     observedAt: offer.currentPrice.observedAt, status: 'ACTIVE' as const,
   };
 }
@@ -45,8 +45,7 @@ export async function evaluateNeed(need: NeedRecord): Promise<EvaluationCounts> 
   const counts = zeroCounts();
   counts.activeNeedsEvaluated = 1;
   counts.matchingProductsFound = offers.length;
-  await prisma.$transaction(async tx => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${need.id}))`;
+  await database.$transaction(async tx => {
     const active = await tx.deal.findMany({ where: { needId: need.id, status: 'ACTIVE' } });
     const currentKeys = new Set(offers.map(offer => snapshotKey(need, offer)));
     for (const old of active) {
@@ -98,11 +97,11 @@ export async function evaluateNeed(need: NeedRecord): Promise<EvaluationCounts> 
 }
 
 export async function evaluateActiveNeeds(needIds?: string[]) {
-  const run = await prisma.evaluationRun.create({ data: {} });
+  const run = await database.evaluationRun.create({ data: {} });
   const totals = zeroCounts();
   const errors: Array<{ needId: string; message: string }> = [];
   try {
-    const needs = needIds?.length === 0 ? [] : await prisma.userNeed.findMany({ where: {
+    const needs = needIds?.length === 0 ? [] : await database.userNeed.findMany({ where: {
       active: true, ...(needIds ? { id: { in: [...new Set(needIds)] } } : {}),
     }, include: { category: { select: { slug: true, name: true } } }, orderBy: { id: 'asc' } });
     for (const need of needs) {
@@ -115,14 +114,14 @@ export async function evaluateActiveNeeds(needIds?: string[]) {
       }
     }
     // Archived needs cannot remain active opportunities.
-    const expiredArchived = await prisma.deal.updateMany({ where: { status: 'ACTIVE', need: { active: false } },
+    const expiredArchived = await database.deal.updateMany({ where: { status: 'ACTIVE', need: { active: false } },
       data: { status: 'EXPIRED', evaluatedAt: new Date() } });
     totals.dealsUpdated += expiredArchived.count;
   } catch (error) {
     totals.failureCount++;
     errors.push({ needId: 'run', message: error instanceof Error ? error.message : String(error) });
   }
-  return prisma.evaluationRun.update({ where: { id: run.id }, data: { ...totals, errors,
+  return database.evaluationRun.update({ where: { id: run.id }, data: { ...totals, errors,
     status: totals.failureCount === 0 ? 'SUCCEEDED' : totals.activeNeedsEvaluated === 0 ? 'FAILED' : 'PARTIAL',
     finishedAt: new Date() } });
 }

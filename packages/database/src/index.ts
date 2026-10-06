@@ -1,9 +1,10 @@
 import { config as loadDotEnv } from 'dotenv';
-import { PrismaClient } from '@prisma/client';
+import { DynamoDataClient } from './dynamo.js';
 
 loadDotEnv({ path: new URL('../../../.env', import.meta.url).pathname });
-const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
-export const prisma = globalForPrisma.prisma ?? new PrismaClient();
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
-export { Prisma } from '@prisma/client';
-export type { UserNeed, Deal, Alert, Notification, NotificationDeliveryStatus, PushPlatform } from '@prisma/client';
+const globalDatabase = globalThis as unknown as { database?: DynamoDataClient };
+export const database = globalDatabase.database ?? new DynamoDataClient();
+globalDatabase.database = database;
+export { Database } from './types.js';
+export { DatabaseRequestError } from './dynamo.js';
+export type { UserNeed, Deal, Alert, Notification, NotificationDeliveryStatus, PushPlatform } from './types.js';

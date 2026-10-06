@@ -1,4 +1,4 @@
-import { prisma } from '@market/database';
+import { database } from '@market/database';
 import { ingestPrices } from './ingest.js';
 import { createOpenPricesConnector } from './open-prices.js';
 
@@ -26,4 +26,4 @@ try {
 } catch (error) {
   console.error(JSON.stringify({ event: 'open_prices_ingestion_failed', message: error instanceof Error ? error.message : String(error) }));
   process.exitCode = 1;
-} finally { await prisma.$disconnect(); }
+} finally { await database.$disconnect(); }

@@ -70,7 +70,7 @@ OPEN_PRICES_USER_AGENT="market-tasarruf-asistani/0.1 (contact@example.com)"
 Use a real project contact in the user agent before shared or production execution.
 
 ```sh
-pnpm db:migrate
+pnpm db:setup
 pnpm ingest:open-prices --limit 25
 ```
 

@@ -130,7 +130,7 @@ Stored provenance includes source, source identifier, file hash, page/source loc
 ## Local Demo
 
 ```bash
-corepack pnpm --filter @market/database db:migrate
+corepack pnpm --filter @market/database db:setup
 corepack pnpm --filter @market/database db:seed
 corepack pnpm ingest:brochure ./fixtures/carrefour-example.pdf
 corepack pnpm brochure:review list

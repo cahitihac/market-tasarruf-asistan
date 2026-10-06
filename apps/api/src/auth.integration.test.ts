@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { prisma } from '@market/database';
+import { database } from '@market/database';
 import { evaluateNeed } from '@market/evaluation';
 import { buildApp } from './app.js';
 import { tokenHash } from './consumer-auth.js';
@@ -13,14 +13,14 @@ describe('consumer authentication and data isolation', () => {
 
   beforeAll(async () => { app = await buildApp(); });
   afterAll(async () => {
-    await prisma.notification.deleteMany({ where: { userId: { in: userIds } } });
-    await prisma.alert.deleteMany({ where: { userId: { in: userIds } } });
-    await prisma.recommendation.deleteMany({ where: { userId: { in: userIds } } });
-    await prisma.deal.deleteMany({ where: { userId: { in: userIds } } });
-    await prisma.userNeed.deleteMany({ where: { id: { in: needIds } } });
-    await prisma.consumerAccountToken.deleteMany({ where: { userId: { in: userIds } } });
-    await prisma.consumerSession.deleteMany({ where: { userId: { in: userIds } } });
-    await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+    await database.notification.deleteMany({ where: { userId: { in: userIds } } });
+    await database.alert.deleteMany({ where: { userId: { in: userIds } } });
+    await database.recommendation.deleteMany({ where: { userId: { in: userIds } } });
+    await database.deal.deleteMany({ where: { userId: { in: userIds } } });
+    await database.userNeed.deleteMany({ where: { id: { in: needIds } } });
+    await database.consumerAccountToken.deleteMany({ where: { userId: { in: userIds } } });
+    await database.consumerSession.deleteMany({ where: { userId: { in: userIds } } });
+    await database.user.deleteMany({ where: { id: { in: userIds } } });
     await app.close();
   });
 
@@ -74,12 +74,12 @@ describe('consumer authentication and data isolation', () => {
     const email = `verify-${Date.now()}@example.test`;
     const registered = await register(email, 'verify-test-password');
     expect(registered.user.email).toBe(email);
-    expect((await prisma.user.findUniqueOrThrow({ where: { id: registered.user.id } })).emailVerifiedAt).toBeNull();
+    expect((await database.user.findUniqueOrThrow({ where: { id: registered.user.id } })).emailVerifiedAt).toBeNull();
 
     const firstToken = tokenFrom(await latestDevLink(email, 'verification'));
     const verified = await app.inject({ method: 'POST', url: '/auth/verify-email', payload: { token: firstToken } });
     expect(verified.statusCode).toBe(200);
-    expect((await prisma.user.findUniqueOrThrow({ where: { id: registered.user.id } })).emailVerifiedAt).toBeTruthy();
+    expect((await database.user.findUniqueOrThrow({ where: { id: registered.user.id } })).emailVerifiedAt).toBeTruthy();
 
     const reused = await app.inject({ method: 'POST', url: '/auth/verify-email', payload: { token: firstToken } });
     expect(reused.statusCode).toBe(400);
@@ -89,7 +89,7 @@ describe('consumer authentication and data isolation', () => {
     expect(resend.statusCode).toBe(200);
 
     const expiredToken = 'expired-verification-token-with-valid-length';
-    await prisma.consumerAccountToken.create({ data: { userId: unverified.user.id, purpose: 'EMAIL_VERIFICATION',
+    await database.consumerAccountToken.create({ data: { userId: unverified.user.id, purpose: 'EMAIL_VERIFICATION',
       tokenHash: tokenHash(expiredToken), expiresAt: new Date(Date.now() - 1000) } });
     const expired = await app.inject({ method: 'POST', url: '/auth/verify-email', payload: { token: expiredToken } });
     expect(expired.statusCode).toBe(400);
@@ -118,8 +118,8 @@ describe('consumer authentication and data isolation', () => {
       payload: { token: resetToken, password: 'another-reset-password' } })).statusCode).toBe(400);
 
     const expiredToken = 'expired-reset-token-with-valid-length';
-    const user = await prisma.user.findUniqueOrThrow({ where: { email } });
-    await prisma.consumerAccountToken.create({ data: { userId: user.id, purpose: 'PASSWORD_RESET',
+    const user = await database.user.findUniqueOrThrow({ where: { email } });
+    await database.consumerAccountToken.create({ data: { userId: user.id, purpose: 'PASSWORD_RESET',
       tokenHash: tokenHash(expiredToken), expiresAt: new Date(Date.now() - 1000) } });
     expect((await app.inject({ method: 'POST', url: '/auth/reset-password',
       payload: { token: expiredToken, password: 'expired-reset-password' } })).statusCode).toBe(400);
@@ -190,11 +190,11 @@ describe('consumer authentication and data isolation', () => {
     expect(deleted.statusCode).toBe(204);
     expect((await app.inject({ method: 'POST', url: '/auth/login', payload: { email, password: 'delete-test-password' } })).statusCode).toBe(401);
     expect((await app.inject({ url: '/auth/me', headers: auth(account.token) })).statusCode).toBe(401);
-    const user = await prisma.user.findUniqueOrThrow({ where: { id: account.user.id } });
+    const user = await database.user.findUniqueOrThrow({ where: { id: account.user.id } });
     expect(user.status).toBe('DISABLED');
     expect(user.deletedAt).toBeTruthy();
     expect(user.email).toBe(`deleted-${account.user.id}@deleted.local`);
-    expect(await prisma.userNeed.findUnique({ where: { id: need.json().id } })).toBeTruthy();
+    expect(await database.userNeed.findUnique({ where: { id: need.json().id } })).toBeTruthy();
   });
 
   it('isolates needs, deals, alerts and notifications across two consumers and preserves worker ownership', async () => {
@@ -217,7 +217,7 @@ describe('consumer authentication and data isolation', () => {
     expect(needB.statusCode).toBe(201);
     needIds.push(needB.json().id);
 
-    const persistedNeedA = await prisma.userNeed.findUniqueOrThrow({ where: { id: needA.json().id },
+    const persistedNeedA = await database.userNeed.findUniqueOrThrow({ where: { id: needA.json().id },
       include: { category: { select: { slug: true, name: true } } } });
     const evaluatedA = await evaluateNeed(persistedNeedA);
     expect(evaluatedA.activeNeedsEvaluated).toBe(1);

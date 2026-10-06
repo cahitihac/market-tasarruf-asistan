@@ -1,7 +1,24 @@
 {
-  "name": "@market/database", "version": "0.1.0", "private": true, "type": "module",
-  "exports": { ".": "./src/index.ts" },
-  "scripts": { "db:generate": "prisma generate", "db:migrate": "prisma migrate deploy", "db:seed": "tsx prisma/seed.ts", "db:verify": "tsx prisma/verify.ts", "build": "prisma generate", "typecheck": "tsc --noEmit", "lint": "eslint src prisma/*.ts prisma.config.ts && prisma validate", "test": "vitest run --passWithNoTests" },
-  "dependencies": { "@prisma/client": "6.19.0", "dotenv": "^16.6.1" },
-  "devDependencies": { "prisma": "6.19.0" }
+  "name": "@market/database",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./seed": "./scripts/seed.ts"
+  },
+  "scripts": {
+    "db:setup": "node --import tsx src/setup.ts",
+    "db:seed": "node --import tsx scripts/seed.ts",
+    "db:verify": "node --import tsx scripts/verify.ts",
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src scripts/*.ts",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1146.0",
+    "@aws-sdk/lib-dynamodb": "^3.1146.0",
+    "dotenv": "^16.6.1"
+  }
 }

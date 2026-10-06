@@ -8,7 +8,8 @@
     "scheme": "market-asistani",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.anonymous.market-asistani"
     },
     "android": {
       "softwareKeyboardLayoutMode": "resize",
@@ -25,7 +26,18 @@
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
-    "plugins": ["expo-router", "expo-notifications"],
+    "plugins": [
+      "expo-router",
+      "expo-notifications",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "enableSceneSupport": true
+          }
+        }
+      ]
+    ],
     "experiments": {
       "typedRoutes": true
     }
